@@ -288,38 +288,6 @@ wheels = [
 ]
 
 [[package]]
-name = "deep-research-mcp"
-version = "2.3.0"
-source = { editable = "." }
-dependencies = [
-    { name = "fastmcp", extra = ["tasks"] },
-    { name = "google-genai" },
-    { name = "httpx" },
-    { name = "python-dotenv" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "mypy" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "fastmcp", extras = ["tasks"], git = "https://github.com/jlowin/fastmcp?rev=main" },
-    { name = "google-genai", specifier = ">=1.57.0" },
-    { name = "httpx", specifier = ">=0.27.0" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0" },
-    { name = "python-dotenv", specifier = ">=1.0.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4.0" },
-]
-provides-extras = ["dev"]
-
-[[package]]
 name = "diskcache"
 version = "5.6.3"
 source = { registry = "https://pypi.org/simple" }
@@ -436,6 +404,38 @@ dependencies = [
 tasks = [
     { name = "pydocket" },
 ]
+
+[[package]]
+name = "gemini-research-mcp"
+version = "3.0.0"
+source = { editable = "." }
+dependencies = [
+    { name = "fastmcp", extra = ["tasks"] },
+    { name = "google-genai" },
+    { name = "httpx" },
+    { name = "python-dotenv" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastmcp", extras = ["tasks"], git = "https://github.com/jlowin/fastmcp?rev=main" },
+    { name = "google-genai", specifier = ">=1.57.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4.0" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "google-auth"

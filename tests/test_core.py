@@ -7,7 +7,7 @@ Run with: uv run pytest tests/ -v
 import pytest
 from datetime import date
 
-from deep_research_mcp.config import (
+from gemini_research_mcp.config import (
     DEFAULT_MODEL,
     DEFAULT_THINKING_BUDGET,
     THINKING_BUDGETS,

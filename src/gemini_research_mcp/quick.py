@@ -17,13 +17,13 @@ from google.genai.types import (
     Tool,
 )
 
-from deep_research_mcp.config import (
+from gemini_research_mcp.config import (
     default_system_prompt,
     get_api_key,
     get_model,
     get_thinking_budget,
 )
-from deep_research_mcp.types import ResearchResult, Source
+from gemini_research_mcp.types import ResearchResult, Source
 
 if TYPE_CHECKING:
     from google.genai.types import GenerateContentResponse

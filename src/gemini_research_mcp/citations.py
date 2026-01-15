@@ -11,7 +11,7 @@ import re
 
 import httpx
 
-from deep_research_mcp.types import DeepResearchResult, ParsedCitation
+from gemini_research_mcp.types import DeepResearchResult, ParsedCitation
 
 
 async def resolve_redirect_url(

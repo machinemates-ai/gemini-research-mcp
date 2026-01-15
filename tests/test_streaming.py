@@ -20,8 +20,8 @@ pytestmark = pytest.mark.e2e
 # Add src to path for direct execution
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from deep_research_mcp.deep import deep_research, deep_research_stream
-from deep_research_mcp.types import DeepResearchProgress
+from gemini_research_mcp.deep import deep_research, deep_research_stream
+from gemini_research_mcp.types import DeepResearchProgress
 
 # Aliases for test compatibility
 deep_research_async = deep_research

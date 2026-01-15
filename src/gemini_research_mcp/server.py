@@ -1,10 +1,11 @@
 """
-Deep Research MCP Server
+Gemini Research MCP Server
 
 Provides AI-powered research tools via Gemini:
-- research_quick: Fast grounded search (5-30 seconds)
-- research_deep: Comprehensive multi-step research (3-20 minutes) - BACKGROUND TASK
+- research_quick: Fast grounded search (5-30 seconds) - Gemini + Google Search
+- research_deep: Comprehensive multi-step research (3-20 minutes) - Deep Research Agent
 - research_status: Check status of deep research tasks
+- research_followup: Ask follow-up questions about completed research
 
 Architecture:
 - FastMCP with task=True for background task support (MCP Tasks / SEP-1732)
@@ -23,14 +24,14 @@ from fastmcp import FastMCP
 from fastmcp.dependencies import Progress
 from fastmcp.server.tasks import TaskConfig
 
-from deep_research_mcp import __version__
-from deep_research_mcp.citations import process_citations
-from deep_research_mcp.deep import deep_research_stream, get_research_status, research_followup as _research_followup
-from deep_research_mcp.quick import quick_research
-from deep_research_mcp.types import DeepResearchError, DeepResearchResult
+from gemini_research_mcp import __version__
+from gemini_research_mcp.citations import process_citations
+from gemini_research_mcp.deep import deep_research_stream, get_research_status, research_followup as _research_followup
+from gemini_research_mcp.quick import quick_research
+from gemini_research_mcp.types import DeepResearchError, DeepResearchResult
 
 # Configure logging
-logger = logging.getLogger("deep-research-mcp")
+logger = logging.getLogger("gemini-research-mcp")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -41,31 +42,37 @@ logging.basicConfig(
 # =============================================================================
 
 mcp = FastMCP(
-    name="deep-research",
+    name="gemini-research",
     instructions="""
-Deep Research MCP Server - AI-powered research using Gemini
+Gemini Research MCP Server - AI-powered research toolkit
 
-This server provides four tools:
+This server provides four tools for different research needs:
 
-1. **research_quick**: Fast web search with Gemini grounding (5-30 seconds)
-   - Use for quick lookups, fact-checking, current events
-   - Returns immediately with results
+## Quick Research (research_quick)
+Fast web search with Gemini grounding (5-30 seconds)
+- Uses: Gemini 2.5 Flash + Google Search grounding
+- Best for: Quick lookups, fact-checking, current events, documentation
+- Returns: Immediate results with citations
 
-2. **research_deep**: Comprehensive autonomous research (3-20 minutes)
-   - Use for complex questions requiring multi-source synthesis
-   - Runs as background task with progress updates
-   - Optionally search your own data with file_search_store_names
+## Deep Research (research_deep)
+Comprehensive autonomous research (3-20 minutes)
+- Uses: Gemini Deep Research Agent (Interactions API)
+- Best for: Complex questions, research reports, competitive analysis
+- Runs as: Background task with progress updates
+- Optional: Search your own data with file_search_store_names
 
-3. **research_status**: Check status of deep research tasks
-   - Provide the interaction_id from research_deep
-   - Returns current status and results if complete
+## Status Check (research_status)
+Check on ongoing or completed Deep Research tasks
+- Provide the interaction_id from research_deep
+- Returns: Current status and results if complete
 
-4. **research_followup**: Ask follow-up questions about completed research
-   - Continue the conversation without restarting research
-   - Ask for clarification, elaboration, or summarization
+## Follow-up (research_followup)
+Continue the conversation after Deep Research completes
+- Ask for clarification, elaboration, or summarization
+- Avoids restarting the entire research task
 
-Choose research_quick for simple questions, research_deep for thorough investigation.
-Use research_followup to dive deeper into completed research.
+**Workflow:** Use research_quick first for simple questions. If deeper 
+investigation is needed, escalate to research_deep.
 """,
 )
 
@@ -428,7 +435,7 @@ async def research_followup(
 
 def main() -> None:
     """Run the MCP server on stdio transport."""
-    logger.info("🚀 Starting Deep Research MCP Server v%s (FastMCP)", __version__)
+    logger.info("🚀 Starting Gemini Research MCP Server v%s (FastMCP)", __version__)
     logger.info("   Transport: stdio")
     logger.info("   Task mode: enabled (MCP Tasks / SEP-1732)")
 

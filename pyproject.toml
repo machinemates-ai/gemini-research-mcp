@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "deep-research-mcp"
-version = "2.3.0"
-description = "MCP server for AI-powered research using Gemini grounding with background tasks support"
+name = "gemini-research-mcp"
+version = "0.1.0"
+description = "MCP server for AI-powered research using Gemini: quick grounded search + Deep Research Agent"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
@@ -20,6 +20,7 @@ keywords = [
     "ai",
     "deep-research",
     "grounding",
+    "google-search",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -38,13 +39,13 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/fortaine/deep-research-mcp"
-Documentation = "https://github.com/fortaine/deep-research-mcp#readme"
-Repository = "https://github.com/fortaine/deep-research-mcp"
-Issues = "https://github.com/fortaine/deep-research-mcp/issues"
+Homepage = "https://github.com/fortaine/gemini-research-mcp"
+Documentation = "https://github.com/fortaine/gemini-research-mcp#readme"
+Repository = "https://github.com/fortaine/gemini-research-mcp"
+Issues = "https://github.com/fortaine/gemini-research-mcp/issues"
 
 [project.scripts]
-deep-research-mcp = "deep_research_mcp.server:main"
+gemini-research-mcp = "gemini_research_mcp.server:main"
 
 [project.optional-dependencies]
 dev = [
@@ -55,7 +56,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/deep_research_mcp"]
+packages = ["src/gemini_research_mcp"]
 
 [tool.ruff]
 line-length = 100

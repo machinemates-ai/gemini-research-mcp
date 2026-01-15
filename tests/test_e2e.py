@@ -30,7 +30,7 @@ class TestResearchQuickE2E:
     @pytest.mark.e2e
     async def test_basic_search(self):
         """Basic search should return grounded result with sources."""
-        from deep_research_mcp.quick import quick_research
+        from gemini_research_mcp.quick import quick_research
         
         result = await quick_research(
             "What is OMOP CDM version 5.4?",
@@ -46,7 +46,7 @@ class TestResearchQuickE2E:
     @pytest.mark.e2e
     async def test_site_filter(self):
         """Site filter should scope results to specific domain."""
-        from deep_research_mcp.quick import quick_research
+        from gemini_research_mcp.quick import quick_research
         
         result = await quick_research(
             "site:cloud.google.com BigQuery pricing",
@@ -62,7 +62,7 @@ class TestResearchQuickE2E:
     @pytest.mark.e2e
     async def test_system_prompt_affects_response(self):
         """Custom system prompt should affect response style."""
-        from deep_research_mcp.quick import quick_research
+        from gemini_research_mcp.quick import quick_research
         
         # Request JSON-style response
         result = await quick_research(
@@ -83,7 +83,7 @@ class TestResearchVendorDocsE2E:
     @pytest.mark.e2e
     async def test_gcp_docs(self):
         """GCP vendor search should return GCP-focused results."""
-        from deep_research_mcp.server import research_vendor_docs
+        from gemini_research_mcp.server import research_vendor_docs
         
         result = await research_vendor_docs(
             vendor="gcp",
@@ -100,7 +100,7 @@ class TestResearchVendorDocsE2E:
     @pytest.mark.e2e
     async def test_ohdsi_docs(self):
         """OHDSI vendor search should return OMOP-focused results."""
-        from deep_research_mcp.server import research_vendor_docs
+        from gemini_research_mcp.server import research_vendor_docs
         
         result = await research_vendor_docs(
             vendor="ohdsi",
@@ -116,7 +116,7 @@ class TestResearchVendorDocsE2E:
     @pytest.mark.e2e
     async def test_unknown_vendor_fallback(self):
         """Unknown vendor should use generic site filter."""
-        from deep_research_mcp.server import research_vendor_docs
+        from gemini_research_mcp.server import research_vendor_docs
         
         result = await research_vendor_docs(
             vendor="python.org",
@@ -136,7 +136,7 @@ class TestSourceExtraction:
     @pytest.mark.e2e
     async def test_sources_have_uri_and_title(self):
         """Extracted sources should have URI and title."""
-        from deep_research_mcp.quick import quick_research
+        from gemini_research_mcp.quick import quick_research
         
         result = await quick_research(
             "Python dataclasses documentation",
@@ -152,7 +152,7 @@ class TestSourceExtraction:
     @pytest.mark.e2e
     async def test_queries_are_captured(self):
         """Search queries used by model should be captured."""
-        from deep_research_mcp.quick import quick_research
+        from gemini_research_mcp.quick import quick_research
         
         result = await quick_research(
             "latest Python release version",

@@ -1,46 +1,57 @@
-# Deep Research MCP Server
+# Gemini Research MCP Server
 
-[![PyPI version](https://badge.fury.io/py/deep-research-mcp.svg)](https://badge.fury.io/py/deep-research-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-MCP server for AI-powered research using **Gemini + Google Grounded Search**.
+MCP server for AI-powered research using **Gemini**. Combines fast grounded search with comprehensive Deep Research capabilities.
 
-## Features
+## Tools
 
-| Tool | Description | Latency |
-|------|-------------|---------|
-| `research_quick` | Fast grounded search with citations | 5-30 sec |
-| `research_deep` | Multi-step research with real-time progress ([MCP Tasks](https://spec.modelcontextprotocol.io/specification/draft/server/tasks/)) | 3-20 min |
-| `research_status` | Check status of background research tasks | instant |
-| `research_followup` | Ask follow-up questions about completed research | 5-30 sec |
+| Tool | Description | Latency | API Used |
+|------|-------------|---------|----------|
+| `research_quick` | Fast web search with citations | 5-30 sec | Gemini + Google Search grounding |
+| `research_deep` | Multi-step autonomous research | 3-20 min | Deep Research Agent (Interactions API) |
+| `research_status` | Check status of background tasks | instant | Interactions API |
+| `research_followup` | Continue conversation after research | 5-30 sec | Interactions API |
+
+### Workflow
+
+```
+research_quick  ─── quick lookup ───▶  Got what you need?  ── yes ──▶ Done
+       │                                        │
+       │                                       no
+       │                                        ▼
+       └──────────────────────────────▶  research_deep  ──▶  Wait for results
+                                                │
+                                                ▼
+                                        research_followup  ──▶  Dive deeper
+```
 
 ### Advanced Features
 
-- **File Search**: Search your own data alongside web search using `file_search_store_names`
-- **Follow-up Questions**: Continue the conversation after research completes using `previous_interaction_id`
+- **File Search**: Search your own data alongside web using `file_search_store_names`
+- **Follow-up**: Continue conversations with `previous_interaction_id`
 - **Format Instructions**: Control report structure (sections, tables, tone)
+- **Real-time Progress**: [MCP Tasks](https://spec.modelcontextprotocol.io/specification/draft/server/tasks/) with streaming updates
 
 ## Installation
 
 ### From PyPI
 
 ```bash
-pip install deep-research-mcp
+pip install gemini-research-mcp
 # or
-uv add deep-research-mcp
+uv add gemini-research-mcp
 ```
 
 ### From Source
 
 ```bash
-git clone https://github.com/fortaine/deep-research-mcp
-cd deep-research-mcp
+git clone https://github.com/fortaine/gemini-research-mcp
+cd gemini-research-mcp
 uv sync
 ```
 
 ## Configuration
-
-Create a `.env` file or set environment variables:
 
 ```bash
 # Required
@@ -62,9 +73,9 @@ Add to `.vscode/mcp.json`:
 ```json
 {
   "servers": {
-    "deep-research": {
+    "gemini-research": {
       "command": "uvx",
-      "args": ["deep-research-mcp"],
+      "args": ["gemini-research-mcp"],
       "env": {
         "GEMINI_API_KEY": "your-api-key"
       }
@@ -77,22 +88,22 @@ Add to `.vscode/mcp.json`:
 
 ```bash
 # After pip install
-deep-research-mcp
+gemini-research-mcp
 
 # Or with uvx (no install needed)
-uvx deep-research-mcp
+uvx gemini-research-mcp
 ```
 
 ## Architecture
 
 - **Transport**: stdio (VS Code spawns as child process)
-- **Tasks**: [MCP Tasks](https://spec.modelcontextprotocol.io/specification/draft/server/tasks/) (SEP-1732) with real-time progress
+- **Tasks**: [MCP Tasks](https://spec.modelcontextprotocol.io/specification/draft/server/tasks/) (SEP-1732) for `research_deep`
 - **Framework**: [FastMCP](https://github.com/jlowin/fastmcp) 2.5+
 
 ## Module Structure
 
 ```
-deep_research_mcp/
+gemini_research_mcp/
 ├── __init__.py     # Package exports
 ├── server.py       # MCP server (FastMCP tools)
 ├── config.py       # Configuration management
@@ -110,3 +121,16 @@ uv run pytest
 uv run mypy src/
 uv run ruff check src/
 ```
+
+## Why "Gemini Research"?
+
+This server provides two distinct research capabilities:
+
+1. **research_quick** - Uses Gemini Flash + Google Search grounding (NOT Deep Research)
+2. **research_deep** - Uses Gemini Deep Research Agent
+
+The name "gemini-research-mcp" accurately reflects that both tools are Gemini-powered research capabilities, rather than implying everything uses Deep Research.
+
+## License
+
+MIT

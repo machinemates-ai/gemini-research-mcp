@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from google import genai
 
-from deep_research_mcp.citations import process_citations
-from deep_research_mcp.config import (
+from gemini_research_mcp.citations import process_citations
+from gemini_research_mcp.config import (
     MAX_INITIAL_RETRIES,
     MAX_POLL_TIME,
     RECONNECT_DELAY,
@@ -27,7 +27,7 @@ from deep_research_mcp.config import (
     get_deep_research_agent,
     is_retryable_error,
 )
-from deep_research_mcp.types import (
+from gemini_research_mcp.types import (
     DeepResearchError,
     DeepResearchProgress,
     DeepResearchResult,
