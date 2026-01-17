@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-MCP server for AI-powered research using **Gemini**. Combines fast grounded search with comprehensive Deep Research capabilities.
+The **reference MCP server** for AI-powered research using **Gemini**. Combines fast grounded search with comprehensive Deep Research capabilities, plus async patterns for maximum flexibility.
 
 ## Tools
 
@@ -11,13 +11,26 @@ MCP server for AI-powered research using **Gemini**. Combines fast grounded sear
 | `research_web` | Fast web search with citations | 5-30 sec | Gemini 3 Flash + Google Search grounding |
 | `research_deep` | Multi-step autonomous research | 3-20 min | Deep Research Agent (Interactions API) |
 | `research_followup` | Continue conversation after research | 5-30 sec | Interactions API |
+| `clarify_research` | Elicit preferences for vague queries | <5 sec | MCP Elicitation (SEP-1330) |
+| `start_research` | Start research async (non-blocking) | <1 sec | Deep Research Agent |
+| `check_research` | Check status or get results | <1 sec | Interactions API |
+
+### Resources
+
+| Resource | Description |
+|----------|-------------|
+| `research://models` | Lists available models & agents with capabilities |
 
 ### Workflow
 
+**Synchronous (blocking):**
 ```
 research_web  ─── quick lookup ───▶  Got what you need?  ── yes ──▶ Done
        │                                        │
        │                                       no
+       │                                        ▼
+       │                              clarify_research  ──▶  Refine vague query (SEP-1330)
+       │                                        │
        │                                        ▼
        └──────────────────────────────▶  research_deep  ──▶  Wait for results
                                                 │
@@ -25,12 +38,27 @@ research_web  ─── quick lookup ───▶  Got what you need?  ── ye
                                         research_followup  ──▶  Dive deeper
 ```
 
+**Asynchronous (non-blocking):**
+```
+start_research  ──▶  Returns interaction_id immediately
+       │
+       ▼
+    (do other work)
+       │
+       ▼
+check_research  ──▶  Poll status / get results when ready
+```
+
 ### Advanced Features
 
+- **Elicitation (SEP-1330)**: `clarify_research` interactively refines vague queries before expensive research
+- **Async Pattern**: Non-blocking `start_research` + `check_research` for polling workflows
+- **MCP Tasks (SEP-1732)**: [Real-time progress](https://spec.modelcontextprotocol.io/specification/draft/server/tasks/) with streaming updates
 - **File Search**: Search your own data alongside web using `file_search_store_names`
 - **Follow-up**: Continue conversations with `previous_interaction_id`
 - **Format Instructions**: Control report structure (sections, tables, tone)
-- **Real-time Progress**: [MCP Tasks](https://spec.modelcontextprotocol.io/specification/draft/server/tasks/) with streaming updates
+- **Error Categorization**: Typed error categories (`AUTH_ERROR`, `RATE_LIMIT`, `SAFETY_BLOCK`, etc.)
+- **Models Resource**: Discover available models and agents via `research://models`
 
 ## Installation
 
@@ -152,12 +180,12 @@ async def research_deep(..., progress: Progress):
 
 ```
 src/gemini_research_mcp/
-├── __init__.py     # Package exports
-├── server.py       # MCP server (FastMCP tools)
+├── __init__.py     # Package exports (ErrorCategory, start_research_async, etc.)
+├── server.py       # MCP server (5 tools + 1 resource)
 ├── config.py       # Configuration management
-├── types.py        # Data types and exceptions
+├── types.py        # Data types, exceptions, ErrorCategory enum
 ├── quick.py        # research_web (grounded search)
-├── deep.py         # research_deep (multi-step agent)
+├── deep.py         # research_deep + start_research_async + get_research_status
 ├── citations.py    # Citation extraction and URL resolution
 └── py.typed        # PEP 561 type marker
 ```
@@ -209,6 +237,37 @@ The name "gemini-research-mcp" accurately reflects that both tools are Gemini-po
 | `research_deep` | ~$2-5 per task |
 
 *Deep Research uses ~80-160 searches and ~250k-900k tokens per task.*
+
+## Comparison
+
+This server implements the most complete feature set among Gemini Deep Research MCP implementations:
+
+| Feature | gemini-research-mcp | Others |
+|---------|:-------------------:|:------:|
+| **Tools** | 6 | 1-3 |
+| Sync deep research | ✅ | ✅ |
+| Async start/poll pattern | ✅ | ✅ (some) |
+| Fast web search | ✅ | ❌ |
+| Follow-up conversations | ✅ | ❌ |
+| MCP Tasks (real-time progress) | ✅ | ❌ |
+| **MCP Features** | | |
+| Elicitation (SEP-1330) | ✅ | ❌ |
+| Resources | ✅ | ❌ |
+| **Advanced** | | |
+| Format instructions | ✅ | ⚠️ (some) |
+| File search (RAG) | ✅ | ❌ |
+| Typed error categories | ✅ | ❌ |
+| Thinking level config | ✅ | ⚠️ (some) |
+| Citation extraction | ✅ | ⚠️ (basic) |
+
+### Key Differentiators
+
+1. **Complete workflow coverage**: Web search → Clarify → Deep Research → Follow-up
+2. **MCP showcase**: Implements SEP-1330 (Elicitation), SEP-1732 (Tasks), Resources
+3. **Two execution models**: Blocking (MCP Tasks) + Non-blocking (start/check)
+4. **Production-ready**: Error categorization, retry-aware exceptions, typed responses
+5. **First-class RAG**: `file_search_store_names` for grounding on your data
+6. **Format control**: Structure reports with `format_instructions`
 
 ## License
 
