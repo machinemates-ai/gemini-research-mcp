@@ -446,12 +446,74 @@ async def deep_research(
     return result
 
 
+async def start_research_async(
+    query: str,
+    *,
+    format_instructions: str | None = None,
+    file_search_store_names: list[str] | None = None,
+    agent_name: str | None = None,
+) -> str:
+    """
+    Start a Deep Research task without waiting for completion.
+
+    Use this for long-running research tasks where you want to:
+    - Start research and do other work while it runs
+    - Poll for status later with get_research_status()
+    - Not block the MCP client
+
+    Research typically takes 3-20 minutes to complete.
+
+    Args:
+        query: Research question or topic
+        format_instructions: Optional formatting instructions for output
+        file_search_store_names: Optional list of file search store names for RAG
+        agent_name: Deep Research agent to use
+
+    Returns:
+        interaction_id: Use this to check status with get_research_status()
+    """
+    client = genai.Client(api_key=get_api_key())
+    agent_name = agent_name or get_deep_research_agent()
+
+    prompt = f"{query}\n\n{format_instructions}" if format_instructions else query
+
+    tools = None
+    if file_search_store_names:
+        tools = [
+            {
+                "type": "file_search",
+                "file_search_store_names": file_search_store_names,
+            }
+        ]
+
+    create_kwargs: dict[str, Any] = {
+        "input": prompt,
+        "agent": agent_name,
+        "background": True,  # Run in background mode
+    }
+    if tools:
+        create_kwargs["tools"] = tools
+
+    logger.info("🚀 Starting async deep research: %s", query[:100])
+    interaction = await client.aio.interactions.create(**create_kwargs)
+    logger.info("   📋 Interaction ID: %s", interaction.id)
+
+    return interaction.id
+
+
 async def get_research_status(interaction_id: str) -> DeepResearchResult:
     """
     Get the current status of a Deep Research task.
 
+    Use this to check on research started with start_research_async().
+
+    The returned DeepResearchResult includes:
+    - raw_interaction.status: "in_progress", "completed", "failed", "cancelled"
+    - text: The report text (only populated when completed)
+    - usage: Token usage/cost info (when available)
+
     Args:
-        interaction_id: The interaction ID from a started research task
+        interaction_id: The interaction ID from start_research_async()
 
     Returns:
         DeepResearchResult with current status and any available outputs
