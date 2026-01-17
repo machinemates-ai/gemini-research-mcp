@@ -5,7 +5,52 @@ Data types for Gemini Research MCP Server.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
+
+# =============================================================================
+# Error Categories (inspired by DanDaDaDanDan/mcp-gemini)
+# =============================================================================
+
+
+class ErrorCategory(str, Enum):
+    """Categorized error types for programmatic handling."""
+
+    AUTH_ERROR = "AUTH_ERROR"  # API key invalid or missing
+    RATE_LIMIT = "RATE_LIMIT"  # Quota exceeded, retry later
+    CONTENT_BLOCKED = "CONTENT_BLOCKED"  # Content policy violation
+    SAFETY_BLOCK = "SAFETY_BLOCK"  # Safety filter triggered
+    TIMEOUT = "TIMEOUT"  # Research exceeded max time
+    NOT_FOUND = "NOT_FOUND"  # Interaction ID not found
+    RESEARCH_FAILED = "RESEARCH_FAILED"  # Research task failed
+    RESEARCH_CANCELLED = "RESEARCH_CANCELLED"  # Research was cancelled
+    INTERNAL_ERROR = "INTERNAL_ERROR"  # Unexpected internal error
+    API_ERROR = "API_ERROR"  # Other API errors
+
+
+def _categorize_error_message(message: str) -> ErrorCategory:
+    """Infer error category from error message."""
+    msg_lower = message.lower()
+
+    if "api key" in msg_lower or "unauthorized" in msg_lower or "401" in msg_lower:
+        return ErrorCategory.AUTH_ERROR
+    if "rate" in msg_lower or "quota" in msg_lower or "429" in msg_lower:
+        return ErrorCategory.RATE_LIMIT
+    if "safety" in msg_lower:
+        return ErrorCategory.SAFETY_BLOCK
+    if "blocked" in msg_lower or "content policy" in msg_lower:
+        return ErrorCategory.CONTENT_BLOCKED
+    if "timeout" in msg_lower or "timed out" in msg_lower:
+        return ErrorCategory.TIMEOUT
+    if "not found" in msg_lower or "404" in msg_lower:
+        return ErrorCategory.NOT_FOUND
+    if "cancelled" in msg_lower or "canceled" in msg_lower:
+        return ErrorCategory.RESEARCH_CANCELLED
+    if "failed" in msg_lower:
+        return ErrorCategory.RESEARCH_FAILED
+
+    return ErrorCategory.API_ERROR
+
 
 # =============================================================================
 # Exceptions
@@ -18,19 +63,37 @@ class DeepResearchError(Exception):
     Provides structured error information with error codes for programmatic handling.
     """
 
-    def __init__(self, code: str, message: str, details: dict[str, Any] | None = None):
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        details: dict[str, Any] | None = None,
+        category: ErrorCategory | None = None,
+    ):
         self.code = code
         self.message = message
         self.details = details or {}
+        # Auto-categorize if not provided
+        self.category = category or _categorize_error_message(message)
         super().__init__(f"{code}: {message}")
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
             "code": self.code,
+            "category": self.category.value if self.category else None,
             "message": self.message,
             "details": self.details,
         }
+
+    @property
+    def is_retryable(self) -> bool:
+        """Whether this error might succeed on retry."""
+        return self.category in (
+            ErrorCategory.RATE_LIMIT,
+            ErrorCategory.TIMEOUT,
+            ErrorCategory.API_ERROR,
+        )
 
 
 # =============================================================================
@@ -145,11 +208,10 @@ class DeepResearchResult:
 class DeepResearchProgress:
     """Progress update from streaming deep research."""
 
-    event_type: str  # "start", "thought", "text", "complete", "error", "status"
+    event_type: str  # "start", "thought", "text", "action", "complete", "error", "status"
     content: str | None = None
     interaction_id: str | None = None
     event_id: str | None = None  # For stream resumption after disconnection
-    event_id: str | None = None
 
 
 # =============================================================================

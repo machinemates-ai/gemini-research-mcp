@@ -1,8 +1,9 @@
 """Gemini Research MCP Server
 
 AI-powered research using Gemini:
-- research_quick: Fast grounded search (Gemini + Google Search)
+- research_web: Fast grounded search (Gemini + Google Search)
 - research_deep: Comprehensive research (Deep Research Agent, requires MCP Tasks)
+- start_research / check_research: Async research pattern (non-blocking)
 - research_followup: Continue conversation after research completes
 """
 
@@ -12,7 +13,9 @@ from gemini_research_mcp.citations import process_citations
 from gemini_research_mcp.deep import (
     deep_research,
     deep_research_stream,
+    get_research_status,
     research_followup,
+    start_research_async,
 )
 from gemini_research_mcp.quick import quick_research
 from gemini_research_mcp.server import main, mcp
@@ -21,6 +24,7 @@ from gemini_research_mcp.types import (
     DeepResearchProgress,
     DeepResearchResult,
     DeepResearchUsage,
+    ErrorCategory,
     ParsedCitation,
     ResearchResult,
     Source,
@@ -32,14 +36,17 @@ __all__ = [
     "DeepResearchProgress",
     "DeepResearchResult",
     "DeepResearchUsage",
+    "ErrorCategory",
     "ParsedCitation",
     "ResearchResult",
     "Source",
-    "quick_research",
     "deep_research",
     "deep_research_stream",
-    "research_followup",
-    "process_citations",
+    "get_research_status",
     "main",
     "mcp",
+    "process_citations",
+    "quick_research",
+    "research_followup",
+    "start_research_async",
 ]
