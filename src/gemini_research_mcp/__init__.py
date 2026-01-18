@@ -6,7 +6,7 @@ AI-powered research using Gemini:
 - research_followup: Continue conversation after research completes
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from gemini_research_mcp.citations import process_citations
 from gemini_research_mcp.deep import (
