@@ -45,20 +45,20 @@ research_web  ─── quick lookup ───▶  Got what you need?  ── ye
 
 ## Installation
 
+### From PyPI
+
+```bash
+pip install gemini-research-mcp
+# or
+uv add gemini-research-mcp
+```
+
 ### From Source
 
 ```bash
 git clone https://github.com/fortaine/gemini-research-mcp
 cd gemini-research-mcp
 uv sync
-```
-
-### From PyPI (future)
-
-```bash
-pip install gemini-research-mcp
-# or
-uv add gemini-research-mcp
 ```
 
 ## Configuration

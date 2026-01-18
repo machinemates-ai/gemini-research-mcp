@@ -80,9 +80,11 @@ def _extract_text_from_interaction(interaction: Any) -> str | None:
     if outputs:
         last_output = outputs[-1]
         if hasattr(last_output, "text"):
-            return last_output.text
+            text = last_output.text
+            return str(text) if text is not None else None
         if hasattr(last_output, "content"):
-            return last_output.content
+            content = last_output.content
+            return str(content) if content is not None else None
     return None
 
 
@@ -279,11 +281,11 @@ async def deep_research_stream(
         await asyncio.sleep(retry_delay)
 
         try:
-            resume_stream = await client.aio.interactions.get(
-                id=interaction_id,
-                stream=True,
-                last_event_id=last_event_id,
-            )
+            # last_event_id can be None on first reconnect
+            get_kwargs: dict[str, Any] = {"id": interaction_id, "stream": True}
+            if last_event_id is not None:
+                get_kwargs["last_event_id"] = last_event_id
+            resume_stream = await client.aio.interactions.get(**get_kwargs)
             logger.info("⏱️ [%.1fs] RECONNECTED", time.time() - stream_start_time)
             async for progress in process_stream(resume_stream):
                 yield progress
@@ -352,9 +354,9 @@ async def deep_research(
         agent_name=agent_name,
     ):
         if on_progress:
-            result = on_progress(progress)
-            if inspect.isawaitable(result):
-                await result
+            cb_result = on_progress(progress)
+            if inspect.isawaitable(cb_result):
+                await cb_result
 
         if progress.event_type == "start":
             interaction_id = progress.interaction_id
@@ -391,9 +393,9 @@ async def deep_research(
                         content=f"Waiting... ({status}, {elapsed:.0f}s)",
                         interaction_id=interaction_id,
                     )
-                    result = on_progress(prog)
-                    if inspect.isawaitable(result):
-                        await result
+                    poll_cb_result = on_progress(prog)
+                    if inspect.isawaitable(poll_cb_result):
+                        await poll_cb_result
 
                 if status == "completed":
                     raw_interaction = final_interaction

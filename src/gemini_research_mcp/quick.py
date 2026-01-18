@@ -126,10 +126,12 @@ async def quick_research(
     # Extract thinking summary if present
     thinking_summary = None
     if include_thoughts and response.candidates:
-        for part in response.candidates[0].content.parts:
-            if hasattr(part, "thought") and part.thought:
-                thinking_summary = part.text
-                break
+        content = response.candidates[0].content
+        if content is not None and content.parts is not None:
+            for part in content.parts:
+                if hasattr(part, "thought") and part.thought:
+                    thinking_summary = part.text
+                    break
 
     return ResearchResult(
         text=response.text or "",

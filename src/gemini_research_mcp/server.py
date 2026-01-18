@@ -22,8 +22,8 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
-from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.experimental.task_support import TaskSupport
+from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
@@ -292,18 +292,19 @@ async def _maybe_clarify_query(
         questions.append("Can you provide more context about what you're looking for?")
 
     # Generic comparative terms (only for short queries)
-    if any(term in query_lower for term in ["compare", "vs", "versus", "best", "top"]):
-        if query_len < 100 and not any(c.isdigit() for c in query):
-            is_vague = True
-            questions.append("What specific aspects would you like to compare?")
-            questions.append("What's your use case or context?")
+    comparative_terms = ["compare", "vs", "versus", "best", "top"]
+    has_comparative = any(term in query_lower for term in comparative_terms)
+    if has_comparative and query_len < 100 and not any(c.isdigit() for c in query):
+        is_vague = True
+        questions.append("What specific aspects would you like to compare?")
+        questions.append("What's your use case or context?")
 
     # Generic topic terms (only for short queries)
-    if any(term in query_lower for term in ["research", "analyze", "investigate"]):
-        if query_len < 100:
-            is_vague = True
-            questions.append("What specific angle or focus area interests you?")
-            questions.append("What's the timeframe or scope you're interested in?")
+    has_topic_term = any(term in query_lower for term in ["research", "analyze", "investigate"])
+    if has_topic_term and query_len < 100:
+        is_vague = True
+        questions.append("What specific angle or focus area interests you?")
+        questions.append("What's the timeframe or scope you're interested in?")
 
     # "Best practices" without context (only for short queries)
     if "best practice" in query_lower and query_len < 100:
