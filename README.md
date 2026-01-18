@@ -27,7 +27,7 @@ research_web  ─── quick lookup ───▶  Got what you need?  ── ye
 
 ### Features
 
-- **Auto-Clarification**: `research_deep` asks clarifying questions for vague queries via [MCP Elicitation](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/elicitation)
+- **Auto-Clarification**: `research_deep` asks clarifying questions for vague queries via [MCP Elicitation](https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation)
 - **MCP Tasks**: [Real-time progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks) with streaming updates
 - **File Search**: Search your own data alongside web using `file_search_store_names`
 - **Format Instructions**: Control report structure (sections, tables, tone)
