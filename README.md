@@ -36,7 +36,7 @@ research_web  ─── quick lookup ───▶  Got what you need?  ── ye
 ### Advanced Features
 
 - **Auto-Clarification (SEP-1330)**: `research_deep` automatically asks clarifying questions for vague queries via MCP Elicitation
-- **MCP Tasks (SEP-1732)**: [Real-time progress](https://spec.modelcontextprotocol.io/specification/draft/server/tasks/) with streaming updates
+- **MCP Tasks (SEP-1732)**: [Real-time progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks) with streaming updates
 - **File Search**: Search your own data alongside web using `file_search_store_names`
 - **Follow-up**: Continue conversations with `previous_interaction_id`
 - **Format Instructions**: Control report structure (sections, tables, tone)
@@ -150,7 +150,7 @@ For this use case (single developer, VS Code MCP), stdio is optimal. The 5-30 se
 
 ### MCP Tasks (SEP-1732)
 
-`research_deep` uses [MCP Tasks](https://spec.modelcontextprotocol.io/specification/draft/server/tasks/) for background execution with real-time progress:
+`research_deep` uses [MCP Tasks](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks) for background execution with real-time progress:
 
 ```python
 @mcp.tool(task=TaskConfig(mode="required"))
