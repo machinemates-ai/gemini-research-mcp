@@ -11,7 +11,6 @@ The **reference MCP server** for AI-powered research using **Gemini**. Combines 
 | `research_web` | Fast web search with citations | 5-30 sec | Gemini 3 Flash + Google Search grounding |
 | `research_deep` | Multi-step autonomous research | 3-20 min | Deep Research Agent (Interactions API) |
 | `research_followup` | Continue conversation after research | 5-30 sec | Interactions API |
-| `clarify_research` | Elicit preferences for vague queries | <5 sec | MCP Elicitation (SEP-1330) |
 
 ### Resources
 
@@ -26,18 +25,17 @@ research_web  ─── quick lookup ───▶  Got what you need?  ── ye
        │                                        │
        │                                       no
        │                                        ▼
-       │                              clarify_research  ──▶  Refine vague query (SEP-1330)
-       │                                        │
-       │                                        ▼
-       └──────────────────────────────▶  research_deep  ──▶  Wait for results
-                                                │
-                                                ▼
+       └──────────────────────────────▶  research_deep  ──▶  Comprehensive report
+                                       │         │
+                               (auto-clarifies   │
+                                vague queries)   │
+                                                 ▼
                                         research_followup  ──▶  Dive deeper
 ```
 
 ### Advanced Features
 
-- **Elicitation (SEP-1330)**: `clarify_research` interactively refines vague queries before expensive research
+- **Auto-Clarification (SEP-1330)**: `research_deep` automatically asks clarifying questions for vague queries via MCP Elicitation
 - **MCP Tasks (SEP-1732)**: [Real-time progress](https://spec.modelcontextprotocol.io/specification/draft/server/tasks/) with streaming updates
 - **File Search**: Search your own data alongside web using `file_search_store_names`
 - **Follow-up**: Continue conversations with `previous_interaction_id`
@@ -166,11 +164,12 @@ async def research_deep(..., progress: Progress):
 ```
 src/gemini_research_mcp/
 ├── __init__.py     # Package exports (ErrorCategory, DeepResearchResult, etc.)
-├── server.py       # MCP server (4 tools + 1 resource)
+├── server.py       # MCP server (3 tools + 1 resource)
 ├── config.py       # Configuration management
 ├── types.py        # Data types, exceptions, ErrorCategory enum
 ├── quick.py        # research_web (grounded search)
 ├── deep.py         # research_deep + research_followup
+├── clarifier.py    # Query analysis and clarification (internal)
 ├── citations.py    # Citation extraction and URL resolution
 └── py.typed        # PEP 561 type marker
 ```
