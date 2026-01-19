@@ -6,7 +6,15 @@ AI-powered research using Gemini:
 - research_followup: Continue conversation after research completes
 """
 
-__version__ = "0.1.3"
+try:
+    from importlib.metadata import PackageNotFoundError, version
+except (ImportError, ModuleNotFoundError):
+    __version__ = "0.0.0+unknown"
+else:
+    try:
+        __version__ = version("gemini-research-mcp")
+    except PackageNotFoundError:
+        __version__ = "0.0.0+unknown"
 
 from gemini_research_mcp.citations import process_citations
 from gemini_research_mcp.deep import (
