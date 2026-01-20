@@ -64,7 +64,7 @@ uv sync
 |----------|----------|---------|-------------|
 | `GEMINI_API_KEY` | **Yes** | — | [Google AI Studio API key](https://aistudio.google.com/apikey) |
 | `GEMINI_MODEL` | No | `gemini-3-flash-preview` | Model for `research_web` |
-| `GEMINI_SUMMARY_MODEL` | No | `gemini-3.0-flash` | Model for session summaries (fast) |
+| `GEMINI_SUMMARY_MODEL` | No | `gemini-3-flash-preview` | Model for session summaries (fast) |
 | `DEEP_RESEARCH_AGENT` | No | `deep-research-pro-preview-12-2025` | Agent for `research_deep` |
 
 ```bash

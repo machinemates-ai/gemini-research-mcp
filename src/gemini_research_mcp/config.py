@@ -25,7 +25,7 @@ DEFAULT_MODEL = "gemini-3-flash-preview"
 # Interactions Deep Research agent name (preview; override via DEEP_RESEARCH_AGENT if needed)
 DEFAULT_DEEP_RESEARCH_AGENT = "deep-research-pro-preview-12-2025"
 # Model for generating summaries (fast, cheap)
-DEFAULT_SUMMARY_MODEL = "gemini-3.0-flash"
+DEFAULT_SUMMARY_MODEL = "gemini-3-flash-preview"
 
 # Thinking level for Gemini 3 models
 # Values: "minimal", "low", "medium", "high"
