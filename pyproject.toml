@@ -45,11 +45,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# DOCX export support with TOC, hyperlinks, bookmarks (skelmis-docx is an enhanced python-docx fork)
-# Using fork until upstream merges pywin32 fix: https://github.com/Skelmis/python-docx/pull/30
-# Pinned to commit SHA for reproducibility
+# DOCX export uses pypandoc for high-quality Markdown→DOCX conversion
+# pypandoc_binary bundles Pandoc (~80MB) so users don't need system install
 docx = [
-    "skelmis-docx @ git+https://github.com/fortaine/python-docx.git@06d0809bb29f561051dfcc142c03a9d96f439f89",
+    "pypandoc>=1.13",
+    "pypandoc_binary>=1.13",
 ]
 dev = [
     "pytest>=8.0.0",
@@ -58,9 +58,8 @@ dev = [
     "pytest-timeout>=2.3.0",
     "mypy>=1.10.0",
     "ruff>=0.4.0",
-    # Using fork until upstream merges pywin32 fix: https://github.com/Skelmis/python-docx/pull/30
-    # Pinned to commit SHA for reproducibility
-    "skelmis-docx @ git+https://github.com/fortaine/python-docx.git@fix/pywin32-version-constraint",
+    "pypandoc>=1.13",
+    "pypandoc_binary>=1.13",
 ]
 
 [project.urls]

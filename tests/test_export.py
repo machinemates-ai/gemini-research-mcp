@@ -211,8 +211,8 @@ class TestDocxExport:
 
     def test_export_to_docx_basic(self, sample_session: ResearchSession) -> None:
         """Test basic DOCX export."""
-        # Import check - skip if python-docx not installed
-        pytest.importorskip("skelmis.docx")
+        # Import check - skip if pypandoc not installed
+        pytest.importorskip("pypandoc")
 
         from gemini_research_mcp.export import export_to_docx
 
@@ -225,7 +225,7 @@ class TestDocxExport:
 
     def test_docx_is_valid_zip(self, sample_session: ResearchSession) -> None:
         """Test that DOCX output is a valid ZIP archive (OOXML format)."""
-        pytest.importorskip("skelmis.docx")
+        pytest.importorskip("pypandoc")
 
         from io import BytesIO
         from zipfile import ZipFile
@@ -243,7 +243,7 @@ class TestDocxExport:
 
     def test_docx_minimal_session(self, minimal_session: ResearchSession) -> None:
         """Test DOCX export with minimal session."""
-        pytest.importorskip("skelmis.docx")
+        pytest.importorskip("pypandoc")
 
         from gemini_research_mcp.export import export_to_docx
 
@@ -251,9 +251,9 @@ class TestDocxExport:
         assert len(result.content) > 0
 
     def test_docx_import_error(self, sample_session: ResearchSession) -> None:
-        """Test that missing python-docx raises helpful error."""
+        """Test that missing pypandoc raises helpful error."""
         # This test is informational - we can't easily test ImportError
-        # when python-docx is installed in dev environment
+        # when pypandoc is installed in dev environment
         pass
 
 
@@ -282,13 +282,13 @@ class TestExportSession:
 
     def test_export_session_docx(self, sample_session: ResearchSession) -> None:
         """Test DOCX export via export_session."""
-        pytest.importorskip("skelmis.docx")
+        pytest.importorskip("pypandoc")
         result = export_session(sample_session, "docx")
         assert result.format == ExportFormat.DOCX
 
     def test_export_session_word_alias(self, sample_session: ResearchSession) -> None:
         """Test 'word' alias for DOCX."""
-        pytest.importorskip("skelmis.docx")
+        pytest.importorskip("pypandoc")
         result = export_session(sample_session, "word")
         assert result.format == ExportFormat.DOCX
 
