@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Invalid model name**: Changed `gemini-3.0-flash` to `gemini-3-flash-preview` (GA model not yet available)
+- **Invalid model name**: Changed `gemini-3.0-flash` to `gemini-3-flash-preview` (GA model not yet available) ([#7](https://github.com/fortaine/gemini-research-mcp/pull/7))
   - Affected: `CLARIFIER_MODEL`, `DEFAULT_SUMMARY_MODEL`, `.env.example`, README
 
 ## [0.2.1] - 2026-01-20

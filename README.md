@@ -40,7 +40,6 @@ research_web  ─── quick lookup ───▶  Got what you need?  ── ye
 - **Export Formats**: Export to Markdown, JSON, or professional DOCX with Table of Contents
 - **File Search**: Search your own data alongside web using `file_search_store_names`
 - **Format Instructions**: Control report structure (sections, tables, tone)
-- **Models Resource**: Discover available models via `research://models`
 
 ## Installation
 
@@ -83,7 +82,7 @@ Add to `.vscode/mcp.json`:
   "servers": {
     "gemini-research": {
       "command": "uvx",
-      "args": ["--from", "gemini-research-mcp[docx]", "gemini-research-mcp"],
+      "args": ["gemini-research-mcp"],
       "env": {
         "GEMINI_API_KEY": "your-api-key"
       }
@@ -91,9 +90,6 @@ Add to `.vscode/mcp.json`:
   }
 }
 ```
-
-> **Note:** The `[docx]` extra enables Word document export. For basic usage without DOCX:
-> `"args": ["gemini-research-mcp"]`
 
 Or run from source:
 
@@ -129,7 +125,37 @@ Export research sessions to professional Word documents with:
 - **Sources section** with full clickable URLs
 - **Metadata table** with session details
 
-### Installation
+### VS Code Setup
+
+To enable DOCX export, install with the `[docx]` extra:
+
+```json
+{
+  "servers": {
+    "gemini-research": {
+      "command": "uvx",
+      "args": ["--from", "gemini-research-mcp[docx]", "gemini-research-mcp"],
+      "env": {
+        "GEMINI_API_KEY": "your-api-key"
+      }
+    }
+  }
+}
+```
+
+### Downloading Files
+
+After running `export_research_session` with `format: "docx"`, the tool returns a resource URI:
+
+```
+research://exports/{export_id}
+```
+
+In **VS Code Copilot Chat**, you can:
+- **Click "Save"** on the resource attachment to download the `.docx` file
+- **Drag-and-drop** from the chat into your workspace
+
+### Installation (pip/uv)
 
 ```bash
 # Install with DOCX support
@@ -149,6 +175,20 @@ uv add 'gemini-research-mcp[docx]'
 | **Heading Spacing** | `keep_with_next` prevents orphan headings |
 | **Sources** | Full URLs as clickable hyperlinks |
 | **Pure Python** | No external binaries (Pandoc not required) |
+
+## Resources
+
+MCP Resources provide read-only data that clients can access:
+
+| Resource | Description |
+|----------|-------------|
+| `research://models` | Available models and their capabilities |
+| `research://exports` | List cached exports ready for download |
+| `research://exports/{id}` | Download an exported file (Markdown, JSON, or DOCX) |
+
+### File Downloads
+
+The `export_research_session` tool creates exports and returns a resource URI. Clients (like VS Code) can then fetch the resource to download the file with proper MIME type handling.
 
 ## Development
 
