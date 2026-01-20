@@ -627,6 +627,7 @@ async def deep_research(
         while time.time() - poll_start < MAX_POLL_TIME:
             try:
                 final_interaction = await client.aio.interactions.get(id=interaction_id)
+                _record_client_success()  # Keep client alive during polling
                 status = getattr(final_interaction, "status", "unknown")
 
                 if on_progress:
