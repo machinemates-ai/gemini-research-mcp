@@ -12,6 +12,7 @@ from gemini_research_mcp.export import (
     ExportFormat,
     ExportResult,
     export_session,
+    export_to_docx,
     export_to_json,
     export_to_markdown,
     get_supported_formats,
@@ -433,22 +434,53 @@ class TestExportCache:
         entry = _get_cached_export("nonexistent-id")
         assert entry is None
 
-    def test_export_resource_returns_bytes(
+    def test_export_resource_returns_mcp_types(
         self, sample_session: ResearchSession
     ) -> None:
-        """Test the resource function returns binary content."""
+        """Test the resource function returns proper MCP content types."""
+        from mcp.types import BlobResourceContents, TextResourceContents
+
         from gemini_research_mcp.server import (
             _cache_export,
             _export_cache,
             get_export_by_id,
         )
 
+        # Test markdown returns TextResourceContents
         result = export_to_markdown(sample_session)
         export_id = _cache_export(result, sample_session.interaction_id)
 
         content = get_export_by_id(export_id)
-        assert content == result.content
-        assert isinstance(content, bytes)
+        assert isinstance(content, TextResourceContents)
+        assert content.mimeType == "text/markdown"
+        assert content.text == result.content.decode("utf-8")
+
+        # Cleanup
+        del _export_cache[export_id]
+
+    def test_export_resource_docx_returns_blob(
+        self, sample_session: ResearchSession
+    ) -> None:
+        """Test DOCX export returns BlobResourceContents with base64."""
+        import base64
+
+        from mcp.types import BlobResourceContents
+
+        from gemini_research_mcp.server import (
+            _cache_export,
+            _export_cache,
+            get_export_by_id,
+        )
+
+        result = export_to_docx(sample_session)
+        export_id = _cache_export(result, sample_session.interaction_id)
+
+        content = get_export_by_id(export_id)
+        assert isinstance(content, BlobResourceContents)
+        assert content.mimeType == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        # Verify base64 decodes to original content
+        decoded = base64.b64decode(content.blob)
+        assert decoded == result.content
 
         # Cleanup
         del _export_cache[export_id]

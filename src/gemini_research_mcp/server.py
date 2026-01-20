@@ -28,8 +28,14 @@ from typing import Annotated, Any
 
 from mcp.server.experimental.task_support import TaskSupport
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.types import ToolAnnotations
-from pydantic import BaseModel, Field
+from mcp.types import (
+    BlobResourceContents,
+    EmbeddedResource,
+    TextContent,
+    TextResourceContents,
+    ToolAnnotations,
+)
+from pydantic import AnyUrl, BaseModel, Field
 
 from gemini_research_mcp import __version__
 from gemini_research_mcp.citations import process_citations
@@ -800,7 +806,7 @@ async def export_research_session(
         str | None,
         "Optional: search for a session by query text instead of interaction_id",
     ] = None,
-) -> str:
+) -> str | list[TextContent | EmbeddedResource]:
     """
     Export a research session to Markdown, JSON, or Word (DOCX) format.
 
@@ -898,8 +904,47 @@ async def export_research_session(
 
         # Cache the export for resource-based download
         export_id = _cache_export(result, session.interaction_id)
+
+        # For binary formats (DOCX), return EmbeddedResource directly for VS Code "Save As"
+        # Following the ElevenLabs MCP pattern: put filename in URI for browser-like save dialog
+        if result.format == ExportFormat.DOCX:
+            import base64
+
+            # URI contains filename so clients extract it for "Save As" dialog (like browsers)
+            resource_uri = f"research://{result.filename}"
+
+            # Create EmbeddedResource with BlobResourceContents for binary file
+            blob_content = BlobResourceContents(
+                uri=AnyUrl(resource_uri),
+                mimeType=result.mime_type,
+                blob=base64.b64encode(result.content).decode("ascii"),
+            )
+            embedded = EmbeddedResource(
+                type="resource",
+                resource=blob_content,
+            )
+
+            # Return metadata as TextContent + file as EmbeddedResource
+            # This enables VS Code's native "Save As" functionality
+            metadata_text = (
+                f"📄 **DOCX Export Complete**\n\n"
+                f"- **Filename:** {result.filename}\n"
+                f"- **Size:** {result.size_human}\n"
+                f"- **Session:** {session.query[:80]}\n"
+                f"- **Resource URI:** {resource_uri}\n\n"
+                f"The DOCX file is attached below. Use 'Save As' to download."
+            )
+            text_content = TextContent(
+                type="text",
+                text=metadata_text,
+            )
+
+            return [text_content, embedded]
+
+        # For text formats, use export ID in URI (for resource download endpoint)
         resource_uri = f"research://exports/{export_id}"
 
+        # For text formats, include content directly
         response: dict[str, Any] = {
             "success": True,
             "format": result.format.value,
@@ -914,20 +959,11 @@ async def export_research_session(
             },
         }
 
-        # For text formats, also include content directly (small enough)
-        if result.format in (ExportFormat.MARKDOWN, ExportFormat.JSON):
-            response["content"] = result.content.decode("utf-8")
-            response["hint"] = (
-                f"Content included below. "
-                f"Resource URI: {resource_uri} (expires in 1 hour)"
-            )
-        else:
-            # For binary formats (DOCX), use resource URI for download
-            response["hint"] = (
-                f"Use resource URI to download: {resource_uri}\n"
-                "In VS Code: Click 'Save' or drag-drop from chat. "
-                "Expires in 1 hour."
-            )
+        response["content"] = result.content.decode("utf-8")
+        response["hint"] = (
+            f"Content included below. "
+            f"Resource URI: {resource_uri} (expires in 1 hour)"
+        )
 
         return json.dumps(response, indent=2)
 
@@ -995,14 +1031,13 @@ def get_research_models() -> str:
     "research://exports/{export_id}",
     name="Research Export",
     description="Download an exported research report. Use export_research_session tool first.",
-    mime_type="application/octet-stream",
 )
-def get_export_by_id(export_id: str) -> bytes:
+def get_export_by_id(export_id: str) -> BlobResourceContents | TextResourceContents:
     """
     Retrieve an exported research report by its export ID.
 
     The export_research_session tool creates exports and returns resource URIs.
-    This resource serves the binary content for download.
+    This resource serves the content for download with proper MIME type.
 
     In VS Code Copilot, you can:
     - Click "Save" to download the file
@@ -1012,14 +1047,35 @@ def get_export_by_id(export_id: str) -> bytes:
         export_id: The unique export identifier from export_research_session
 
     Returns:
-        Binary content of the exported file (Markdown, JSON, or DOCX)
+        Resource content with proper MIME type (Markdown, JSON, or DOCX)
     """
+    import base64
+
+    from pydantic import AnyUrl
+
     entry = _get_cached_export(export_id)
     if not entry:
         raise ValueError(f"Export not found or expired: {export_id}")
 
     logger.info("📥 Serving export %s (%s)", export_id, entry.result.filename)
-    return entry.result.content
+
+    uri = AnyUrl(f"research://exports/{export_id}")
+    mime_type = entry.result.mime_type
+
+    # For text formats, return TextResourceContents
+    if mime_type in ("text/markdown", "application/json"):
+        return TextResourceContents(
+            uri=uri,
+            mimeType=mime_type,
+            text=entry.result.content.decode("utf-8"),
+        )
+
+    # For binary formats (DOCX), return BlobResourceContents with base64
+    return BlobResourceContents(
+        uri=uri,
+        mimeType=mime_type,
+        blob=base64.b64encode(entry.result.content).decode("ascii"),
+    )
 
 
 @mcp.resource(
