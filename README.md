@@ -82,7 +82,7 @@ Add to `.vscode/mcp.json`:
   "servers": {
     "gemini-research": {
       "command": "uvx",
-      "args": ["gemini-research-mcp"],
+      "args": ["--from", "gemini-research-mcp[docx]", "gemini-research-mcp"],
       "env": {
         "GEMINI_API_KEY": "your-api-key"
       }
@@ -90,6 +90,9 @@ Add to `.vscode/mcp.json`:
   }
 }
 ```
+
+> **Note:** The `[docx]` extra enables Word document export. For basic usage without DOCX:
+> `"args": ["gemini-research-mcp"]`
 
 Or run from source:
 
