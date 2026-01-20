@@ -6,8 +6,12 @@ Supports:
 - JSON (.json): Machine-readable with all metadata
 - DOCX (.docx): Professional Word document with proper formatting
 
-DOCX generation uses python-docx to create properly formatted Word documents
-with headings, paragraphs, bullet lists, and inline formatting.
+DOCX generation uses skelmis-docx (enhanced python-docx fork) to create
+properly formatted Word documents with:
+- Table of Contents with hyperlinks
+- Headings, paragraphs, bullet/numbered lists
+- Bold, italic, and code inline formatting
+- External hyperlinks in citations
 """
 
 from __future__ import annotations
@@ -276,24 +280,35 @@ def _add_formatted_text(paragraph: Any, text: str) -> None:
             paragraph.add_run(part)
 
 
-def export_to_docx(session: ResearchSession) -> ExportResult:
+def export_to_docx(
+    session: ResearchSession,
+    *,
+    include_toc: bool = True,
+    toc_levels: int = 3,
+) -> ExportResult:
     """
     Export a research session to DOCX format.
 
     Creates a professionally formatted Word document with:
+    - Table of Contents with hyperlinks (optional)
     - Title and metadata section
     - Summary (if available)
     - Full research report with proper formatting
 
-    Requires python-docx package.
+    Args:
+        session: The research session to export
+        include_toc: Whether to include a Table of Contents (default: True)
+        toc_levels: Number of heading levels to include in TOC (default: 3)
+
+    Requires skelmis-docx package (enhanced python-docx fork).
     """
     try:
-        from docx import Document
-        from docx.shared import Pt
+        from skelmis.docx import Document
+        from skelmis.docx.shared import Pt
     except ImportError as e:
         raise ImportError(
-            "python-docx is required for DOCX export. "
-            "Install with: pip install python-docx"
+            "skelmis-docx is required for DOCX export. "
+            "Install with: pip install skelmis-docx"
         ) from e
 
     doc = Document()
@@ -301,6 +316,16 @@ def export_to_docx(session: ResearchSession) -> ExportResult:
     # Title
     title = session.title or session.query[:60]
     doc.add_heading(title, 0)
+
+    # Table of Contents (inserted after title)
+    if include_toc:
+        toc_para = doc.add_paragraph()
+        toc_para.insert_table_of_contents(
+            levels=toc_levels,
+            format_table_as_links=True,
+            show_page_numbers=True,
+        )
+        doc.add_paragraph()  # Space after TOC
 
     # Metadata section
     doc.add_heading("Metadata", level=1)

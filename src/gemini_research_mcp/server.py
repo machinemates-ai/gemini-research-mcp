@@ -635,25 +635,25 @@ async def research_followup(
             ]
 
             matched_id = await semantic_match_session(query, session_dicts)
-            if not matched_id:
-                return (
-                    "❌ Could not find a matching research session for your question.\n\n"
-                    "Try:\n"
-                    "- Use `list_research_sessions` to see available sessions\n"
-                    "- Provide a specific `interaction_id`\n"
-                    "- Rephrase your question to match a previous research topic"
+            if matched_id:
+                previous_interaction_id = matched_id
+                # Find the matched session for logging
+                matched_session = next(
+                    (s for s in sessions if s.interaction_id == matched_id), None
                 )
-
-            previous_interaction_id = matched_id
-            # Find the matched session for logging
-            matched_session = next(
-                (s for s in sessions if s.interaction_id == matched_id), None
-            )
-            if matched_session:
+                if matched_session:
+                    logger.info(
+                        "   📎 Matched to session: %s (%s)",
+                        matched_id[:12],
+                        matched_session.query[:50],
+                    )
+            else:
+                # Fall back to most recent session
+                previous_interaction_id = sessions[0].interaction_id
                 logger.info(
-                    "   📎 Matched to session: %s (%s)",
-                    matched_id[:12],
-                    matched_session.query[:50],
+                    "   📎 No semantic match, using most recent: %s (%s)",
+                    sessions[0].interaction_id[:12],
+                    sessions[0].query[:50],
                 )
 
         response = await _research_followup(
@@ -786,20 +786,42 @@ async def export_research_session(
                     "hint": "Use list_research_sessions to see available sessions.",
                 })
 
-        # Find session by query search
+        # Find session by query using AI-powered semantic matching
         elif query:
-            sessions = list_research_sessions(limit=20)
-            for s in sessions:
-                query_match = query.lower() in s.query.lower()
-                title_match = s.title and query.lower() in s.title.lower()
-                if query_match or title_match:
-                    session = s
-                    break
-            if not session:
+            sessions = list_research_sessions(limit=20, include_expired=False)
+            if not sessions:
                 return json.dumps({
-                    "error": f"No session found matching query: {query}",
-                    "hint": "Use list_research_sessions to see available sessions.",
+                    "error": "No research sessions found.",
+                    "hint": "Complete a deep research first with research_deep.",
                 })
+
+            # Build session list for semantic matching (same as research_followup)
+            session_dicts = [
+                {
+                    "id": s.interaction_id,
+                    "query": s.query,
+                    "summary": s.summary or s.query[:100],
+                }
+                for s in sessions
+            ]
+
+            matched_id = await semantic_match_session(query, session_dicts)
+            if matched_id:
+                session = next((s for s in sessions if s.interaction_id == matched_id), None)
+                if session:
+                    logger.info(
+                        "   📎 Matched to session: %s (%s)",
+                        matched_id[:12],
+                        session.query[:50],
+                    )
+            else:
+                # Fall back to most recent session
+                session = sessions[0]
+                logger.info(
+                    "   📎 No semantic match, using most recent: %s (%s)",
+                    session.interaction_id[:12],
+                    session.query[:50],
+                )
 
         # Default to most recent session
         else:

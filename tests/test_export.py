@@ -212,7 +212,7 @@ class TestDocxExport:
     def test_export_to_docx_basic(self, sample_session: ResearchSession) -> None:
         """Test basic DOCX export."""
         # Import check - skip if python-docx not installed
-        pytest.importorskip("docx")
+        pytest.importorskip("skelmis.docx")
 
         from gemini_research_mcp.export import export_to_docx
 
@@ -225,7 +225,7 @@ class TestDocxExport:
 
     def test_docx_is_valid_zip(self, sample_session: ResearchSession) -> None:
         """Test that DOCX output is a valid ZIP archive (OOXML format)."""
-        pytest.importorskip("docx")
+        pytest.importorskip("skelmis.docx")
 
         from zipfile import ZipFile
         from io import BytesIO
@@ -242,7 +242,7 @@ class TestDocxExport:
 
     def test_docx_minimal_session(self, minimal_session: ResearchSession) -> None:
         """Test DOCX export with minimal session."""
-        pytest.importorskip("docx")
+        pytest.importorskip("skelmis.docx")
 
         from gemini_research_mcp.export import export_to_docx
 
@@ -281,13 +281,13 @@ class TestExportSession:
 
     def test_export_session_docx(self, sample_session: ResearchSession) -> None:
         """Test DOCX export via export_session."""
-        pytest.importorskip("docx")
+        pytest.importorskip("skelmis.docx")
         result = export_session(sample_session, "docx")
         assert result.format == ExportFormat.DOCX
 
     def test_export_session_word_alias(self, sample_session: ResearchSession) -> None:
         """Test 'word' alias for DOCX."""
-        pytest.importorskip("docx")
+        pytest.importorskip("skelmis.docx")
         result = export_session(sample_session, "word")
         assert result.format == ExportFormat.DOCX
 
