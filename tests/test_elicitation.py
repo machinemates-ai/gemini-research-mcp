@@ -10,7 +10,7 @@ These tests verify the pattern without actual API calls (unit tests).
 """
 
 import pytest
-from pydantic import BaseModel, Field, create_model
+from pydantic import Field, create_model
 
 
 class TestElicitationPattern:

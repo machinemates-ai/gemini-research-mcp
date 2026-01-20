@@ -12,18 +12,26 @@ import inspect
 import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import dataclass, field
 from typing import Any
 
 from google import genai
 
 from gemini_research_mcp.citations import process_citations
 from gemini_research_mcp.config import (
+    CLIENT_MAX_AGE_SECONDS,
+    CLIENT_MAX_REQUESTS,
     DEFAULT_TIMEOUT,
+    INITIAL_RETRY_BACKOFF,
     LOGGER_NAME,
     MAX_INITIAL_RETRIES,
+    MAX_INITIAL_RETRY_DELAY,
     MAX_POLL_TIME,
+    MAX_STREAM_RETRIES,
+    MAX_STREAM_RETRY_DELAY,
     RECONNECT_DELAY,
     STREAM_POLL_INTERVAL,
+    STREAM_RETRY_BACKOFF,
     get_api_key,
     get_deep_research_agent,
     is_retryable_error,
@@ -36,6 +44,106 @@ from gemini_research_mcp.types import (
 )
 
 logger = logging.getLogger(LOGGER_NAME)
+
+
+# =============================================================================
+# Client Health Management
+# =============================================================================
+
+
+@dataclass
+class ClientHealth:
+    """Track client health for long-running servers."""
+
+    created_at: float = field(default_factory=time.time)
+    request_count: int = 0
+    last_request_at: float = field(default_factory=time.time)
+    consecutive_failures: int = 0
+
+    def record_request(self) -> None:
+        """Record a successful request."""
+        self.request_count += 1
+        self.last_request_at = time.time()
+        self.consecutive_failures = 0
+
+    def record_failure(self) -> None:
+        """Record a failed request."""
+        self.consecutive_failures += 1
+
+    def needs_refresh(self) -> bool:
+        """Check if client should be refreshed."""
+        age = time.time() - self.created_at
+        idle_time = time.time() - self.last_request_at
+
+        # Refresh if client is too old
+        if age > CLIENT_MAX_AGE_SECONDS:
+            logger.info(
+                "🔄 Client needs refresh: age=%.0fs > max=%.0fs",
+                age, CLIENT_MAX_AGE_SECONDS
+            )
+            return True
+
+        # Refresh if too many requests (if enabled)
+        if CLIENT_MAX_REQUESTS > 0 and self.request_count >= CLIENT_MAX_REQUESTS:
+            logger.info(
+                "🔄 Client needs refresh: requests=%d >= max=%d",
+                self.request_count, CLIENT_MAX_REQUESTS
+            )
+            return True
+
+        # Refresh if too many consecutive failures
+        if self.consecutive_failures >= 3:
+            logger.info(
+                "🔄 Client needs refresh: consecutive_failures=%d",
+                self.consecutive_failures
+            )
+            return True
+
+        # Refresh if idle for too long (half of max age)
+        if idle_time > CLIENT_MAX_AGE_SECONDS / 2:
+            logger.info("🔄 Client needs refresh: idle_time=%.0fs", idle_time)
+            return True
+
+        return False
+
+
+# Global client management
+_client: genai.Client | None = None
+_client_health: ClientHealth | None = None
+
+
+def _get_healthy_client() -> genai.Client:
+    """Get a healthy Gemini client, creating a new one if needed."""
+    global _client, _client_health
+
+    if _client is None or _client_health is None or _client_health.needs_refresh():
+        logger.info("🔌 Creating new Gemini client")
+        _client = genai.Client(api_key=get_api_key())
+        _client_health = ClientHealth()
+
+    return _client
+
+
+def _record_client_success() -> None:
+    """Record a successful client operation."""
+    global _client_health
+    if _client_health:
+        _client_health.record_request()
+
+
+def _record_client_failure() -> None:
+    """Record a failed client operation."""
+    global _client_health
+    if _client_health:
+        _client_health.record_failure()
+
+
+def _force_client_refresh() -> None:
+    """Force client refresh on next request."""
+    global _client, _client_health
+    logger.warning("⚠️ Forcing client refresh due to critical failure")
+    _client = None
+    _client_health = None
 
 
 def _extract_usage(interaction: Any) -> DeepResearchUsage | None:
@@ -99,7 +207,13 @@ async def deep_research_stream(
     Stream deep research with real-time progress updates.
 
     Uses stream=True to receive thinking summaries and text deltas as they happen.
-    Implements automatic reconnection on network interruptions.
+    Implements automatic reconnection on network interruptions with exponential backoff.
+
+    Features:
+    - Client health monitoring for long-running servers
+    - Exponential backoff with configurable limits
+    - Detailed logging for debugging null interaction_id issues
+    - Automatic client refresh on consecutive failures
 
     Args:
         query: Research question or topic
@@ -115,7 +229,8 @@ async def deep_research_stream(
         - "complete": Research finished successfully
         - "error": Research failed
     """
-    client = genai.Client(api_key=get_api_key())
+    # Use health-monitored client instead of creating new one each time
+    client = _get_healthy_client()
     agent_name = agent_name or get_deep_research_agent()
 
     prompt = f"{query}\n\n{format_instructions}" if format_instructions else query
@@ -148,23 +263,27 @@ async def deep_research_stream(
     logger.info("🔬 DEEP RESEARCH AGENT")
     logger.info("   Agent: %s", agent_name)
     logger.info("   Query: %s", query[:100])
+    logger.info("   Max initial retries: %d", MAX_INITIAL_RETRIES)
+    logger.info("   Max stream retries: %d", MAX_STREAM_RETRIES)
     logger.info("=" * 60)
 
     interaction_id: str | None = None
     last_event_id: str | None = None
     is_complete = False
-    max_retries = 5
-    retry_delay = RECONNECT_DELAY
-    retry_count = 0
+    initial_retry_delay = RECONNECT_DELAY
+    stream_retry_delay = RECONNECT_DELAY
+    stream_retry_count = 0
     disconnect_count = 0
+    received_any_event = False
 
     async def process_stream(stream: Any) -> AsyncIterator[DeepResearchProgress]:
         """Process events from a stream (initial or resumed)."""
-        nonlocal interaction_id, last_event_id, is_complete
+        nonlocal interaction_id, last_event_id, is_complete, received_any_event
 
         chunk_count = 0
         async for chunk in stream:
             chunk_count += 1
+            received_any_event = True
             elapsed = time.time() - stream_start_time
 
             chunk_type = getattr(chunk, "event_type", "unknown")
@@ -172,7 +291,8 @@ async def deep_research_stream(
 
             if chunk.event_type == "interaction.start":
                 interaction_id = chunk.interaction.id
-                logger.debug("[%.1fs] 🚀 interaction.start: id=%s", elapsed, interaction_id)
+                logger.info("[%.1fs] 🚀 interaction.start: id=%s", elapsed, interaction_id)
+                _record_client_success()  # Record successful API interaction
                 yield DeepResearchProgress(
                     event_type="start",
                     interaction_id=interaction_id,
@@ -236,72 +356,195 @@ async def deep_research_stream(
                     event_id=last_event_id,
                 )
 
-    # Initial connection
+    # ==========================================================================
+    # Phase 1: Initial connection with exponential backoff
+    # ==========================================================================
     initial_attempt = 0
 
     while initial_attempt < MAX_INITIAL_RETRIES:
         initial_attempt += 1
+        elapsed_t = time.time() - stream_start_time
+
+        # Refresh client on each retry attempt to pick up health-based refreshes
+        client = _get_healthy_client()
+
         try:
-            logger.info("⏱️ [%.1fs] 🔌 Connecting...", time.time() - stream_start_time)
+            logger.info(
+                "⏱️ [%.1fs] 🔌 Initial connection attempt %d/%d...",
+                elapsed_t, initial_attempt, MAX_INITIAL_RETRIES
+            )
 
             stream = await client.aio.interactions.create(**create_kwargs)
 
             if stream is None:
-                logger.warning("⏱️ [%.1fs] ⚠️ Stream returned None", time.time() - stream_start_time)
-                await asyncio.sleep(RECONNECT_DELAY)
+                _record_client_failure()
+                logger.warning(
+                    "⏱️ [%.1fs] ⚠️ Stream returned None (attempt %d/%d)",
+                    time.time() - stream_start_time, initial_attempt, MAX_INITIAL_RETRIES
+                )
+                # Exponential backoff for retries
+                backoff = INITIAL_RETRY_BACKOFF ** (initial_attempt - 1)
+                wait_time = min(initial_retry_delay * backoff, MAX_INITIAL_RETRY_DELAY)
+                logger.info("   ⏳ Waiting %.1fs before retry...", wait_time)
+                await asyncio.sleep(wait_time)
                 continue
 
             logger.info("⏱️ [%.1fs] ✅ Stream connected", time.time() - stream_start_time)
             async for progress in process_stream(stream):
                 yield progress
+
+            # If we got here without receiving interaction.start, log it
+            if interaction_id is None and received_any_event:
+                logger.warning(
+                    "⏱️ [%.1fs] ⚠️ Stream ended but never received interaction.start event",
+                    time.time() - stream_start_time
+                )
             break
 
         except TypeError as e:
             if "NoneType" in str(e) and "not iterable" in str(e):
-                logger.warning("⏱️ [%.1fs] ⚠️ Stream returned None", time.time() - stream_start_time)
-                await asyncio.sleep(RECONNECT_DELAY)
+                _record_client_failure()
+                logger.warning(
+                    "⏱️ [%.1fs] ⚠️ Stream returned None (TypeError, attempt %d/%d): %s",
+                    time.time() - stream_start_time, initial_attempt, MAX_INITIAL_RETRIES, e
+                )
+                backoff = INITIAL_RETRY_BACKOFF ** (initial_attempt - 1)
+                wait_time = min(initial_retry_delay * backoff, MAX_INITIAL_RETRY_DELAY)
+                logger.info("   ⏳ Waiting %.1fs before retry...", wait_time)
+                await asyncio.sleep(wait_time)
                 continue
             disconnect_count += 1
+            _record_client_failure()
             elapsed_t = time.time() - stream_start_time
-            logger.warning("⏱️ [%.1fs] ❌ DISCONNECT #%d: %s", elapsed_t, disconnect_count, e)
+            logger.warning(
+                "⏱️ [%.1fs] ❌ DISCONNECT #%d (TypeError): %s",
+                elapsed_t, disconnect_count, e
+            )
             break
 
         except Exception as e:
             disconnect_count += 1
+            _record_client_failure()
             elapsed_t = time.time() - stream_start_time
-            logger.warning("⏱️ [%.1fs] ❌ DISCONNECT #%d: %s", elapsed_t, disconnect_count, e)
+            error_str = str(e)
+            logger.warning(
+                "⏱️ [%.1fs] ❌ DISCONNECT #%d: %s",
+                elapsed_t, disconnect_count, error_str
+            )
+
+            # Check if this is a retryable error
+            if is_retryable_error(error_str) and initial_attempt < MAX_INITIAL_RETRIES:
+                backoff = INITIAL_RETRY_BACKOFF ** (initial_attempt - 1)
+                wait_time = min(initial_retry_delay * backoff, MAX_INITIAL_RETRY_DELAY)
+                logger.info("   🔄 Retryable error, waiting %.1fs before retry...", wait_time)
+                await asyncio.sleep(wait_time)
+                continue
             break
 
-    # Reconnection loop
-    while not is_complete and interaction_id and retry_count < max_retries:
-        retry_count += 1
+    # ==========================================================================
+    # Phase 2: Check if we have interaction_id for reconnection
+    # ==========================================================================
+    if interaction_id is None and not is_complete:
         elapsed = time.time() - stream_start_time
-        logger.info("⏱️ [%.1fs] RECONNECT attempt %d/%d", elapsed, retry_count, max_retries)
+        logger.error(
+            "⏱️ [%.1fs] ❌ CRITICAL: No interaction_id received after %d initial attempts. "
+            "This may indicate API issues or rate limiting. "
+            "Server restart may be required if this persists.",
+            elapsed, initial_attempt
+        )
+        # Force client refresh for next request
+        _force_client_refresh()
+        yield DeepResearchProgress(
+            event_type="error",
+            content=(
+                f"Failed to start research after {initial_attempt} attempts ({elapsed:.0f}s). "
+                f"No interaction_id received from API. This may be a temporary API issue. "
+                f"Please try again in a few minutes."
+            ),
+            interaction_id=None,
+            event_id=None,
+        )
+        return
 
-        await asyncio.sleep(retry_delay)
+    # ==========================================================================
+    # Phase 3: Reconnection loop with exponential backoff (if stream interrupted)
+    # ==========================================================================
+    while not is_complete and interaction_id and stream_retry_count < MAX_STREAM_RETRIES:
+        stream_retry_count += 1
+        elapsed = time.time() - stream_start_time
+        short_id = interaction_id[:16] + "..." if len(interaction_id) > 16 else interaction_id
+        logger.info(
+            "⏱️ [%.1fs] 🔄 RECONNECT attempt %d/%d (id=%s)",
+            elapsed, stream_retry_count, MAX_STREAM_RETRIES, short_id
+        )
+
+        # Exponential backoff
+        backoff = STREAM_RETRY_BACKOFF ** (stream_retry_count - 1)
+        wait_time = min(stream_retry_delay * backoff, MAX_STREAM_RETRY_DELAY)
+        logger.info("   ⏳ Waiting %.1fs before reconnect...", wait_time)
+        await asyncio.sleep(wait_time)
 
         try:
+            # Refresh client if needed before reconnection attempt
+            client = _get_healthy_client()
+
             # last_event_id can be None on first reconnect
             get_kwargs: dict[str, Any] = {"id": interaction_id, "stream": True}
             if last_event_id is not None:
                 get_kwargs["last_event_id"] = last_event_id
+
             resume_stream = await client.aio.interactions.get(**get_kwargs)
-            logger.info("⏱️ [%.1fs] RECONNECTED", time.time() - stream_start_time)
+
+            # Validate stream before recording success (API may return None)
+            if resume_stream is None:
+                _record_client_failure()
+                logger.warning(
+                    "⏱️ [%.1fs] ⚠️ Reconnect returned None (attempt %d/%d)",
+                    time.time() - stream_start_time, stream_retry_count, MAX_STREAM_RETRIES
+                )
+                continue
+
+            logger.info(
+                "⏱️ [%.1fs] ✅ RECONNECTED successfully",
+                time.time() - stream_start_time
+            )
+            _record_client_success()
+
             async for progress in process_stream(resume_stream):
                 yield progress
-                retry_count = 0
+                # Reset retry count on successful event
+                stream_retry_count = 0
+
         except Exception as e:
             disconnect_count += 1
+            _record_client_failure()
             elapsed_t = time.time() - stream_start_time
-            logger.warning("⏱️ [%.1fs] DISCONNECT #%d: %s", elapsed_t, disconnect_count, e)
-            retry_delay = min(retry_delay * 1.5, 30.0)
+            error_str = str(e)
+            logger.warning(
+                "⏱️ [%.1fs] ❌ RECONNECT FAILED #%d: %s",
+                elapsed_t, disconnect_count, error_str
+            )
 
+            # Force client refresh after multiple failures
+            if disconnect_count >= 3:
+                _force_client_refresh()
+
+    # ==========================================================================
+    # Phase 4: Final status check
+    # ==========================================================================
     if not is_complete:
         elapsed = time.time() - stream_start_time
-        logger.error("⏱️ [%.1fs] FAILED after %d disconnects", elapsed, disconnect_count)
+        logger.error(
+            "⏱️ [%.1fs] ❌ RESEARCH FAILED: disconnects=%d, retries=%d, id=%s",
+            elapsed, disconnect_count, stream_retry_count, interaction_id
+        )
         yield DeepResearchProgress(
             event_type="error",
-            content=f"Research interrupted after {elapsed:.0f}s ({disconnect_count} disconnects)",
+            content=(
+                f"Research interrupted after {elapsed:.0f}s "
+                f"({disconnect_count} disconnects, {stream_retry_count} reconnect attempts). "
+                f"Interaction ID: {interaction_id}"
+            ),
             interaction_id=interaction_id,
             event_id=last_event_id,
         )
@@ -378,12 +621,13 @@ async def deep_research(
     # Post-stream polling if we got no text but have interaction_id
     if not final_text.strip() and interaction_id:
         logger.info("🔄 POLLING: Stream ended without text...")
-        client = genai.Client(api_key=get_api_key())
+        client = _get_healthy_client()  # Use health-monitored client
         poll_start = time.time()
 
         while time.time() - poll_start < MAX_POLL_TIME:
             try:
                 final_interaction = await client.aio.interactions.get(id=interaction_id)
+                _record_client_success()  # Keep client alive during polling
                 status = getattr(final_interaction, "status", "unknown")
 
                 if on_progress:
@@ -460,8 +704,9 @@ async def get_research_status(interaction_id: str) -> DeepResearchResult:
     Returns:
         DeepResearchResult with current status and any available outputs
     """
-    client = genai.Client(api_key=get_api_key())
+    client = _get_healthy_client()  # Use health-monitored client
     interaction = await client.aio.interactions.get(interaction_id)
+    _record_client_success()
 
     status = getattr(interaction, "status", "unknown")
     text = _extract_text_from_interaction(interaction) if status == "completed" else None
@@ -504,7 +749,7 @@ async def research_followup(
     """
     logger.info("💬 Follow-up question for %s: %s", previous_interaction_id, query[:100])
 
-    client = genai.Client(api_key=get_api_key())
+    client = _get_healthy_client()  # Use health-monitored client
 
     try:
         interaction = await client.aio.interactions.create(
@@ -512,6 +757,7 @@ async def research_followup(
             model=model,
             previous_interaction_id=previous_interaction_id,
         )
+        _record_client_success()
 
         # Extract text from the response
         text = _extract_text_from_interaction(interaction)

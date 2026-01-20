@@ -16,23 +16,43 @@ Architecture:
 # as it breaks type resolution for Annotated parameters in tool functions
 
 import asyncio
+import json
 import logging
 import time
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 from mcp.server.experimental.task_support import TaskSupport
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.types import ToolAnnotations
-from pydantic import BaseModel, Field
+from mcp.types import (
+    BlobResourceContents,
+    EmbeddedResource,
+    TextContent,
+    TextResourceContents,
+    ToolAnnotations,
+)
+from pydantic import AnyUrl, BaseModel, Field
 
 from gemini_research_mcp import __version__
 from gemini_research_mcp.citations import process_citations
 from gemini_research_mcp.config import LOGGER_NAME, get_deep_research_agent, get_model
 from gemini_research_mcp.deep import deep_research_stream, get_research_status
 from gemini_research_mcp.deep import research_followup as _research_followup
-from gemini_research_mcp.quick import quick_research
+from gemini_research_mcp.export import (
+    ExportFormat,
+    ExportResult,
+    export_session,
+)
+from gemini_research_mcp.quick import generate_summary, quick_research, semantic_match_session
+from gemini_research_mcp.storage import (
+    get_research_session,
+    list_research_sessions,
+    save_research_session,
+)
 from gemini_research_mcp.types import DeepResearchError, DeepResearchResult
 
 # Configure logging
@@ -41,6 +61,54 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
+
+
+# =============================================================================
+# Ephemeral Export Cache
+# =============================================================================
+
+# TTL for exported files (1 hour)
+EXPORT_TTL_SECONDS = 3600
+
+
+@dataclass
+class ExportCacheEntry:
+    """Cached export result with TTL."""
+
+    result: ExportResult
+    session_id: str
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    @property
+    def is_expired(self) -> bool:
+        """Check if the export has expired."""
+        return datetime.now(UTC) > self.created_at + timedelta(seconds=EXPORT_TTL_SECONDS)
+
+
+# In-memory cache for exports (keyed by export_id)
+_export_cache: dict[str, ExportCacheEntry] = {}
+
+
+def _cache_export(result: ExportResult, session_id: str) -> str:
+    """Cache an export and return its unique ID."""
+    # Clean up expired entries
+    expired_keys = [k for k, v in _export_cache.items() if v.is_expired]
+    for key in expired_keys:
+        del _export_cache[key]
+
+    export_id = str(uuid.uuid4())[:12]
+    _export_cache[export_id] = ExportCacheEntry(result=result, session_id=session_id)
+    logger.info("   💾 Cached export %s (%s)", export_id, result.size_human)
+    return export_id
+
+
+def _get_cached_export(export_id: str) -> ExportCacheEntry | None:
+    """Retrieve a cached export, or None if expired/missing."""
+    entry = _export_cache.get(export_id)
+    if entry and entry.is_expired:
+        del _export_cache[export_id]
+        return None
+    return entry
 
 
 # =============================================================================
@@ -91,14 +159,29 @@ Use for: research reports, competitive analysis, "compare", "analyze", "investig
 - Automatically asks clarifying questions for vague queries
 - Runs as background task with progress updates
 - Returns comprehensive report with citations
+- Sessions are saved with AI-generated summaries for later follow-up
 
 ## Follow-up (research_followup)
-Continue conversation after deep research completes.
+Continue conversation with any previous deep research session.
 Use for: "elaborate", "clarify", "summarize", follow-up questions.
+- Automatically finds the matching session based on your question
+- No need to track interaction_ids manually
+- Sessions last 55 days (paid tier)
+
+## List Sessions (list_research_sessions_tool)
+Returns JSON list of previous research sessions with queries and summaries.
+Use to answer "what research did I do about X?" questions.
+
+## Export (export_research_session)
+Export completed research to Markdown, JSON, or Word (DOCX) format.
+Use for: sharing reports, archiving research, creating deliverables.
 
 **Workflow:**
 - Simple questions → research_web
-- Complex questions → research_deep (handles everything automatically)
+- Complex questions → research_deep
+- "What did I research about X?" → list_research_sessions_tool
+- Continue old research → research_followup (auto-matches session)
+- Export for sharing → export_research_session
 """,
     lifespan=lifespan,
 )
@@ -488,6 +571,39 @@ async def research_deep(
 
                 result = await process_citations(result, resolve_urls=True)
 
+                # Auto-save session for later follow-up
+                total_tokens = None
+                if result.usage and result.usage.total_tokens:
+                    total_tokens = result.usage.total_tokens
+
+                # Generate summary (first 300 chars of report or query)
+                summary = None
+                if result.text:
+                    # Use AI to generate concise summary (~$0.0003/call)
+                    summary = await generate_summary(
+                        text=result.text,
+                        query=effective_query,
+                        max_chars=300,
+                    )
+
+                # Save session for later follow-up (guard against filesystem errors)
+                try:
+                    save_research_session(
+                        interaction_id=interaction_id,
+                        query=effective_query,
+                        summary=summary,
+                        report_text=result.text,
+                        format_instructions=format_instructions,
+                        agent_name=get_deep_research_agent(),
+                        duration_seconds=elapsed,
+                        total_tokens=total_tokens,
+                    )
+                except Exception as save_error:
+                    logger.warning(
+                        "⚠️ Failed to save session (research succeeded): %s",
+                        save_error,
+                    )
+
                 return _format_deep_research_report(result, interaction_id, elapsed)
 
             elif raw_status in ("failed", "cancelled"):
@@ -531,12 +647,13 @@ async def research_deep(
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def research_followup(
-    previous_interaction_id: Annotated[
-        str, "The interaction_id from a completed research_deep task"
-    ],
     query: Annotated[
-        str, "Follow-up question about the research (e.g., 'elaborate on the second point')"
+        str, "Follow-up question about previous research (e.g., 'elaborate on surface codes')"
     ],
+    interaction_id: Annotated[
+        str | None,
+        "Optional: specific interaction_id. If not provided, auto-matches from sessions.",
+    ] = None,
     model: Annotated[
         str, "Model to use for follow-up. Default: gemini-3-pro-preview"
     ] = "gemini-3-pro-preview",
@@ -544,20 +661,62 @@ async def research_followup(
     """
     Continue conversation after deep research. Ask follow-up questions without restarting.
 
+    The tool automatically finds the relevant research session based on your question.
+    You can optionally provide an interaction_id for direct reference.
+
     Use for: "clarify", "elaborate", "summarize", "explain more", "what about",
     continue discussion, ask more questions about completed research results.
 
     Args:
-        previous_interaction_id: The interaction_id from research_deep
         query: Your follow-up question
+        interaction_id: Optional specific session ID (from list_research_sessions)
         model: Model to use (default: gemini-3-pro-preview)
 
     Returns:
         Response to the follow-up question
     """
-    logger.info("💬 research_followup: %s -> %s", previous_interaction_id, query[:100])
+    logger.info("💬 research_followup: query=%s, id=%s", query[:100], interaction_id)
 
     try:
+        # If no interaction_id provided, find the best matching session
+        previous_interaction_id = interaction_id
+        if not previous_interaction_id:
+            sessions = list_research_sessions(limit=20, include_expired=False)
+            if not sessions:
+                return "❌ No research sessions found. Complete a deep research first."
+
+            # Build session list for semantic matching
+            session_dicts = [
+                {
+                    "id": s.interaction_id,
+                    "query": s.query,
+                    "summary": s.summary or s.query[:100],
+                }
+                for s in sessions
+            ]
+
+            matched_id = await semantic_match_session(query, session_dicts)
+            if matched_id:
+                previous_interaction_id = matched_id
+                # Find the matched session for logging
+                matched_session = next(
+                    (s for s in sessions if s.interaction_id == matched_id), None
+                )
+                if matched_session:
+                    logger.info(
+                        "   📎 Matched to session: %s (%s)",
+                        matched_id[:12],
+                        matched_session.query[:50],
+                    )
+            else:
+                # Fall back to most recent session
+                previous_interaction_id = sessions[0].interaction_id
+                logger.info(
+                    "   📎 No semantic match, using most recent: %s (%s)",
+                    sessions[0].interaction_id[:12],
+                    sessions[0].query[:50],
+                )
+
         response = await _research_followup(
             previous_interaction_id=previous_interaction_id,
             query=query,
@@ -578,6 +737,244 @@ async def research_followup(
     except Exception as e:
         logger.exception("research_followup failed: %s", e)
         return f"❌ Follow-up failed: {e}"
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def list_research_sessions_tool(
+    limit: Annotated[int, "Maximum number of sessions to return"] = 20,
+    include_expired: Annotated[bool, "Include expired sessions"] = False,
+) -> str:
+    """
+    List saved research sessions available for follow-up.
+
+    Sessions are automatically saved when deep research completes successfully.
+    Returns JSON for easy parsing by agents.
+
+    Note: You don't need to extract interaction_ids manually.
+    Just use research_followup with your question - it will automatically
+    find the matching session.
+
+    Returns:
+        JSON array of research sessions with summaries
+    """
+    logger.info("📋 list_research_sessions: limit=%d, include_expired=%s", limit, include_expired)
+
+    sessions = list_research_sessions(limit=limit, include_expired=include_expired)
+
+    if not sessions:
+        return json.dumps({"sessions": [], "message": "No research sessions found."})
+
+    session_list = []
+    for session in sessions:
+        session_data: dict[str, str | int | float | None] = {
+            "interaction_id": session.interaction_id,
+            "query": session.query,
+            "summary": session.summary,
+            "created_at": session.created_at_iso,
+            "expires_in": session.time_remaining_human,
+        }
+        if session.title:
+            session_data["title"] = session.title
+        if session.duration_seconds:
+            session_data["duration_seconds"] = session.duration_seconds
+        if session.total_tokens:
+            session_data["total_tokens"] = session.total_tokens
+
+        session_list.append(session_data)
+
+    return json.dumps(
+        {
+            "sessions": session_list,
+            "count": len(session_list),
+            "hint": "Use research_followup with your question - auto-matches session.",
+        },
+        indent=2,
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def export_research_session(
+    interaction_id: Annotated[
+        str | None,
+        "Interaction ID of the session to export. If not provided, exports the most recent.",
+    ] = None,
+    format: Annotated[
+        str,
+        "Export format: 'markdown' (.md), 'json' (.json), or 'docx' (Word document)",
+    ] = "markdown",
+    query: Annotated[
+        str | None,
+        "Optional: search for a session by query text instead of interaction_id",
+    ] = None,
+) -> str | list[TextContent | EmbeddedResource]:
+    """
+    Export a research session to Markdown, JSON, or Word (DOCX) format.
+
+    Similar to Google's Deep Research export feature, this creates professional
+    documents suitable for sharing, archiving, or further editing.
+
+    Supported formats:
+    - **markdown**: Clean, readable .md file with full report and citations
+    - **json**: Machine-readable with all metadata (for programmatic use)
+    - **docx**: Professional Word document with proper formatting, headings, lists
+
+    Args:
+        interaction_id: Specific session ID to export (from list_research_sessions)
+        format: Output format - markdown, json, or docx
+        query: Search for session by query text (alternative to interaction_id)
+
+    Returns:
+        JSON with export details and resource URI for download
+    """
+    logger.info(
+        "📤 export_research_session: id=%s, format=%s, query=%s",
+        interaction_id,
+        format,
+        query[:30] if query else None,
+    )
+
+    try:
+        session = None
+
+        # Find session by interaction_id
+        if interaction_id:
+            session = get_research_session(interaction_id)
+            if not session:
+                return json.dumps({
+                    "error": f"Session not found: {interaction_id}",
+                    "hint": "Use list_research_sessions to see available sessions.",
+                })
+
+        # Find session by query using AI-powered semantic matching
+        elif query:
+            sessions = list_research_sessions(limit=20, include_expired=False)
+            if not sessions:
+                return json.dumps({
+                    "error": "No research sessions found.",
+                    "hint": "Complete a deep research first with research_deep.",
+                })
+
+            # Build session list for semantic matching (same as research_followup)
+            session_dicts = [
+                {
+                    "id": s.interaction_id,
+                    "query": s.query,
+                    "summary": s.summary or s.query[:100],
+                }
+                for s in sessions
+            ]
+
+            matched_id = await semantic_match_session(query, session_dicts)
+            if matched_id:
+                session = next((s for s in sessions if s.interaction_id == matched_id), None)
+                if session:
+                    logger.info(
+                        "   📎 Matched to session: %s (%s)",
+                        matched_id[:12],
+                        session.query[:50],
+                    )
+                else:
+                    # Matched ID not found in sessions list - fall back to most recent
+                    session = sessions[0]
+                    logger.warning(
+                        "   ⚠️ Matched ID %s not in sessions, using most recent",
+                        matched_id[:12],
+                    )
+            else:
+                # Fall back to most recent session
+                session = sessions[0]
+                logger.info(
+                    "   📎 No semantic match, using most recent: %s (%s)",
+                    session.interaction_id[:12],
+                    session.query[:50],
+                )
+
+        # Default to most recent session
+        else:
+            sessions = list_research_sessions(limit=1)
+            if not sessions:
+                return json.dumps({
+                    "error": "No research sessions found.",
+                    "hint": "Complete a deep research first with research_deep.",
+                })
+            session = sessions[0]
+
+        # Export
+        result = export_session(session, format)
+
+        # Cache the export for resource-based download
+        export_id = _cache_export(result, session.interaction_id)
+
+        # For binary formats (DOCX), return EmbeddedResource directly for VS Code "Save As"
+        # Following the ElevenLabs MCP pattern: put filename in URI for browser-like save dialog
+        if result.format == ExportFormat.DOCX:
+            import base64
+
+            # URI contains filename so clients extract it for "Save As" dialog (like browsers)
+            resource_uri = f"research://{result.filename}"
+
+            # Create EmbeddedResource with BlobResourceContents for binary file
+            blob_content = BlobResourceContents(
+                uri=AnyUrl(resource_uri),
+                mimeType=result.mime_type,
+                blob=base64.b64encode(result.content).decode("ascii"),
+            )
+            embedded = EmbeddedResource(
+                type="resource",
+                resource=blob_content,
+            )
+
+            # Return metadata as TextContent + file as EmbeddedResource
+            # This enables VS Code's native "Save As" functionality
+            metadata_text = (
+                f"📄 **DOCX Export Complete**\n\n"
+                f"- **Filename:** {result.filename}\n"
+                f"- **Size:** {result.size_human}\n"
+                f"- **Session:** {session.query[:80]}\n"
+                f"- **Resource URI:** {resource_uri}\n\n"
+                f"The DOCX file is attached below. Use 'Save As' to download."
+            )
+            text_content = TextContent(
+                type="text",
+                text=metadata_text,
+            )
+
+            return [text_content, embedded]
+
+        # For text formats, use export ID in URI (for resource download endpoint)
+        resource_uri = f"research://exports/{export_id}"
+
+        # For text formats, include content directly
+        response: dict[str, Any] = {
+            "success": True,
+            "format": result.format.value,
+            "filename": result.filename,
+            "size": result.size_human,
+            "mime_type": result.mime_type,
+            "resource_uri": resource_uri,
+            "session": {
+                "interaction_id": session.interaction_id,
+                "query": session.query[:100],
+                "title": session.title,
+            },
+        }
+
+        response["content"] = result.content.decode("utf-8")
+        response["hint"] = (
+            f"Content included below. "
+            f"Resource URI: {resource_uri} (expires in 1 hour)"
+        )
+
+        return json.dumps(response, indent=2)
+
+    except ImportError as e:
+        return json.dumps({
+            "error": str(e),
+            "hint": "Install skelmis-docx for DOCX export.",
+        })
+    except Exception as e:
+        logger.exception("export_research_session failed: %s", e)
+        return json.dumps({"error": f"Export failed: {e}"})
 
 
 # =============================================================================
@@ -628,6 +1025,92 @@ def get_research_models() -> str:
 - **Best for:** Clarification, elaboration, summarization of prior research
 - **Requires:** `previous_interaction_id` from completed research
 """
+
+
+@mcp.resource(
+    "research://exports/{export_id}",
+    name="Research Export",
+    description="Download an exported research report. Use export_research_session tool first.",
+)
+def get_export_by_id(export_id: str) -> BlobResourceContents | TextResourceContents:
+    """
+    Retrieve an exported research report by its export ID.
+
+    The export_research_session tool creates exports and returns resource URIs.
+    This resource serves the content for download with proper MIME type.
+
+    In VS Code Copilot, you can:
+    - Click "Save" to download the file
+    - Drag-and-drop from chat to your workspace
+
+    Args:
+        export_id: The unique export identifier from export_research_session
+
+    Returns:
+        Resource content with proper MIME type (Markdown, JSON, or DOCX)
+    """
+    import base64
+
+    from pydantic import AnyUrl
+
+    entry = _get_cached_export(export_id)
+    if not entry:
+        raise ValueError(f"Export not found or expired: {export_id}")
+
+    logger.info("📥 Serving export %s (%s)", export_id, entry.result.filename)
+
+    uri = AnyUrl(f"research://exports/{export_id}")
+    mime_type = entry.result.mime_type
+
+    # For text formats, return TextResourceContents
+    if mime_type in ("text/markdown", "application/json"):
+        return TextResourceContents(
+            uri=uri,
+            mimeType=mime_type,
+            text=entry.result.content.decode("utf-8"),
+        )
+
+    # For binary formats (DOCX), return BlobResourceContents with base64
+    return BlobResourceContents(
+        uri=uri,
+        mimeType=mime_type,
+        blob=base64.b64encode(entry.result.content).decode("ascii"),
+    )
+
+
+@mcp.resource(
+    "research://exports",
+    name="Available Exports",
+    description="List all currently cached exports ready for download.",
+    mime_type="application/json",
+)
+def list_exports() -> str:
+    """
+    List all currently cached exports.
+
+    Returns a JSON array of available exports with their metadata.
+    Exports expire after 1 hour.
+    """
+    # Clean up expired entries first
+    expired_keys = [k for k, v in _export_cache.items() if v.is_expired]
+    for key in expired_keys:
+        del _export_cache[key]
+
+    exports = []
+    for export_id, entry in _export_cache.items():
+        remaining = (entry.created_at + timedelta(seconds=EXPORT_TTL_SECONDS)) - datetime.now(UTC)
+        exports.append({
+            "export_id": export_id,
+            "uri": f"research://exports/{export_id}",
+            "filename": entry.result.filename,
+            "format": entry.result.format.value,
+            "size": entry.result.size_human,
+            "mime_type": entry.result.mime_type,
+            "session_id": entry.session_id[:12] + "...",
+            "expires_in": f"{max(0, int(remaining.total_seconds()))}s",
+        })
+
+    return json.dumps({"exports": exports, "count": len(exports)}, indent=2)
 
 
 # =============================================================================

@@ -4,13 +4,12 @@ Tests citation parsing from Deep Research reports.
 Run with: uv run pytest tests/test_citations.py -v
 """
 
-import pytest
 
 from gemini_research_mcp.citations import (
     extract_citations_from_text,
     is_blocked_page_title,
 )
-from gemini_research_mcp.types import DeepResearchResult, ParsedCitation
+from gemini_research_mcp.types import ParsedCitation
 
 
 class TestExtractCitationsFromText:

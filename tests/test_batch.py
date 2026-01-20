@@ -222,7 +222,7 @@ async def main():
     batch_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     
     print("="*70)
-    print(f"🧪 DEEP RESEARCH BATCH TEST")
+    print("🧪 DEEP RESEARCH BATCH TEST")
     print(f"   Batch ID: {batch_id}")
     print(f"   Tests: {len(TEST_QUERIES)}")
     print(f"   Agent: {DEEP_RESEARCH_AGENT}")
@@ -276,7 +276,7 @@ async def main():
         json.dump(summary, f, indent=2)
     
     print("="*70)
-    print(f"📊 BATCH SUMMARY")
+    print("📊 BATCH SUMMARY")
     print(f"   Total time: {total_elapsed:.1f}s ({total_elapsed/60:.1f} min)")
     print(f"   Results saved to: {OUTPUT_DIR}/")
     print()

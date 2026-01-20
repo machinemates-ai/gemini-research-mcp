@@ -11,16 +11,16 @@ from unittest.mock import patch
 import pytest
 
 from gemini_research_mcp.config import (
-    DEFAULT_MODEL,
     DEFAULT_DEEP_RESEARCH_AGENT,
+    DEFAULT_MODEL,
     DEFAULT_THINKING_LEVEL,
-    RETRYABLE_ERRORS,
     LOGGER_NAME,
-    get_api_key,
-    get_model,
-    get_deep_research_agent,
-    is_retryable_error,
+    RETRYABLE_ERRORS,
     default_system_prompt,
+    get_api_key,
+    get_deep_research_agent,
+    get_model,
+    is_retryable_error,
 )
 
 
@@ -68,9 +68,11 @@ class TestGetApiKey:
 
     def test_raises_for_empty_key(self):
         """Should raise ValueError for empty API key."""
-        with patch.dict(os.environ, {"GEMINI_API_KEY": ""}):
-            with pytest.raises(ValueError, match="GEMINI_API_KEY"):
-                get_api_key()
+        with (
+            patch.dict(os.environ, {"GEMINI_API_KEY": ""}),
+            pytest.raises(ValueError, match="GEMINI_API_KEY"),
+        ):
+            get_api_key()
 
 
 class TestGetModel:

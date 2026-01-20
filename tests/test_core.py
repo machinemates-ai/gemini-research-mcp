@@ -4,16 +4,17 @@ Tests thinking level parsing and system prompt generation.
 Run with: uv run pytest tests/ -v
 """
 
-import pytest
 from datetime import date
+
+import pytest
+from google.genai.types import ThinkingLevel
 
 from gemini_research_mcp.config import (
     DEFAULT_MODEL,
     DEFAULT_THINKING_LEVEL,
     default_system_prompt,
 )
-from gemini_research_mcp.quick import _get_thinking_level, THINKING_LEVEL_MAP
-from google.genai.types import ThinkingLevel
+from gemini_research_mcp.quick import THINKING_LEVEL_MAP, _get_thinking_level
 
 
 class TestThinkingLevel:

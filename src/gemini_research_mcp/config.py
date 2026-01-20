@@ -24,6 +24,8 @@ LOGGER_NAME = "gemini-research-mcp"
 DEFAULT_MODEL = "gemini-3-flash-preview"
 # Interactions Deep Research agent name (preview; override via DEEP_RESEARCH_AGENT if needed)
 DEFAULT_DEEP_RESEARCH_AGENT = "deep-research-pro-preview-12-2025"
+# Model for generating summaries (fast, cheap)
+DEFAULT_SUMMARY_MODEL = "gemini-3.0-flash"
 
 # Thinking level for Gemini 3 models
 # Values: "minimal", "low", "medium", "high"
@@ -43,7 +45,19 @@ STREAM_POLL_INTERVAL = 10.0  # seconds between polls
 MAX_POLL_TIME = 3600.0  # 60 minutes max wait
 DEFAULT_TIMEOUT = 3600.0  # 60 minutes default timeout
 RECONNECT_DELAY = 2.0  # Initial delay before reconnection
-MAX_INITIAL_RETRIES = 3  # Retries for initial stream creation
+MAX_INITIAL_RETRIES = 5  # Retries for initial stream creation (increased for reliability)
+MAX_INITIAL_RETRY_DELAY = 30.0  # Maximum delay between initial retries
+INITIAL_RETRY_BACKOFF = 1.5  # Exponential backoff multiplier for initial retries
+
+# Reconnection configuration for stream interruptions
+MAX_STREAM_RETRIES = 10  # Maximum reconnection attempts after stream established
+MAX_STREAM_RETRY_DELAY = 60.0  # Maximum delay between stream reconnection attempts
+STREAM_RETRY_BACKOFF = 1.5  # Exponential backoff multiplier for stream retries
+
+# Client health monitoring (for long-running servers)
+# Refresh triggers: age > max, requests >= max, failures >= 3, or idle > max/2
+CLIENT_MAX_AGE_SECONDS = 3600.0  # Max client age (1 hour); also refreshes if idle > 30min
+CLIENT_MAX_REQUESTS = 100  # Recreate client after N requests (0 = disabled)
 
 # Errors that should trigger reconnection
 RETRYABLE_ERRORS = [
@@ -79,6 +93,11 @@ def get_model() -> str:
 def get_deep_research_agent() -> str:
     """Get Deep Research agent name with env override support."""
     return os.environ.get("DEEP_RESEARCH_AGENT", DEFAULT_DEEP_RESEARCH_AGENT)
+
+
+def get_summary_model() -> str:
+    """Get model for generating summaries (fast, cheap)."""
+    return os.environ.get("GEMINI_SUMMARY_MODEL", DEFAULT_SUMMARY_MODEL)
 
 
 def is_retryable_error(error_msg: str) -> bool:

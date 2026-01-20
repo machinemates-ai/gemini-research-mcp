@@ -20,8 +20,8 @@ pytestmark = pytest.mark.e2e
 # Add src to path for direct execution
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from gemini_research_mcp.deep import deep_research, deep_research_stream
-from gemini_research_mcp.types import DeepResearchProgress
+from gemini_research_mcp.deep import deep_research, deep_research_stream  # noqa: E402
+from gemini_research_mcp.types import DeepResearchProgress  # noqa: E402
 
 # Aliases for test compatibility
 deep_research_async = deep_research
@@ -63,7 +63,7 @@ async def test_streaming_raw():
                 print(f"\n❌ Error: {progress.content}")
                 
         print("=" * 60)
-        print(f"\n📊 Summary:")
+        print("\n📊 Summary:")
         print(f"   Events: {events_received}")
         print(f"   Thoughts: {len(thoughts)}")
         print(f"   Text length: {len(''.join(text_parts))}")
@@ -101,7 +101,7 @@ async def test_deep_research_async():
     )
     
     print("=" * 60)
-    print(f"\n📋 Result:")
+    print("\n📋 Result:")
     print(f"   Text: {result.text[:200]}..." if len(result.text) > 200 else f"   Text: {result.text}")
     print(f"   Thoughts collected: {len(result.thinking_summaries)}")
     print(f"   Interaction ID: {result.interaction_id}")
@@ -154,7 +154,7 @@ async def test_real_deep_research():
     print("=" * 60)
     print(result.text)
     print("=" * 60)
-    print(f"\n📊 Stats:")
+    print("\n📊 Stats:")
     print(f"   Total thoughts streamed: {thought_count}")
     print(f"   Thoughts captured: {len(result.thinking_summaries)}")
     print(f"   Report length: {len(result.text)} chars")

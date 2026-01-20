@@ -40,7 +40,7 @@ async def run_deep_research(query: str) -> None:
     client = genai.Client(api_key=api_key)
     
     log("="*70)
-    log(f"🔬 DEEP RESEARCH RAW TEST")
+    log("🔬 DEEP RESEARCH RAW TEST")
     log(f"   Query: {query[:100]}...")
     log(f"   Agent: {DEEP_RESEARCH_AGENT}")
     log("="*70)
@@ -138,7 +138,7 @@ async def run_deep_research(query: str) -> None:
                 continue
             
             # Log unknown event types
-            log(f"   (unknown event type)")
+            log("   (unknown event type)")
         
         log(f"📡 Stream ended after {chunk_count} chunks")
         
@@ -150,7 +150,7 @@ async def run_deep_research(query: str) -> None:
     final_text = "".join(text_chunks)
     
     log("="*70)
-    log(f"📊 STREAM SUMMARY")
+    log("📊 STREAM SUMMARY")
     log(f"   Chunks: {chunk_count}")
     log(f"   Thoughts: {thought_count}")
     log(f"   Text length: {len(final_text)} chars")
@@ -210,7 +210,7 @@ async def run_deep_research(query: str) -> None:
                                         final_text = part.text
                                         log(f"   ✅ Got text from outputs.parts.text: {len(final_text)} chars")
                     else:
-                        log(f"   🔍 No outputs attribute or empty")
+                        log("   🔍 No outputs attribute or empty")
                     
                     # Try output (singular) as fallback
                     if hasattr(interaction, 'output') and interaction.output:
@@ -224,7 +224,7 @@ async def run_deep_research(query: str) -> None:
                                         final_text = part.text
                                         log(f"   ✅ Got text from output.parts.text: {len(final_text)} chars")
                     else:
-                        log(f"   🔍 No output attribute or empty")
+                        log("   🔍 No output attribute or empty")
                     
                     # Try response attribute
                     if hasattr(interaction, 'response') and interaction.response:
@@ -243,7 +243,7 @@ async def run_deep_research(query: str) -> None:
                                                 final_text = part.text
                                                 log(f"   ✅ Got text from response.candidates.content.parts.text: {len(final_text)} chars")
                     else:
-                        log(f"   🔍 No response attribute or empty")
+                        log("   🔍 No response attribute or empty")
                     
                     # Try direct text attribute
                     if hasattr(interaction, 'text') and interaction.text:

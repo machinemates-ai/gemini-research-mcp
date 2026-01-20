@@ -38,9 +38,19 @@ dependencies = [
     "mcp>=1.25.0,<2.0.0",
     "httpx>=0.28.1",
     "python-dotenv>=1.0.0",
+    # Persistent storage using industry-standard key-value interface (used by FastMCP, agentpool, etc.)
+    "py-key-value-aio[disk]>=0.3.0",
+    # XDG-compliant platform-specific directories
+    "platformdirs>=4.0.0",
 ]
 
 [project.optional-dependencies]
+# DOCX export support with TOC, hyperlinks, bookmarks (skelmis-docx is an enhanced python-docx fork)
+# Using fork until upstream merges pywin32 fix: https://github.com/Skelmis/python-docx/pull/30
+# Pinned to commit SHA for reproducibility
+docx = [
+    "skelmis-docx @ git+https://github.com/fortaine/python-docx.git@06d0809bb29f561051dfcc142c03a9d96f439f89",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
@@ -48,6 +58,9 @@ dev = [
     "pytest-timeout>=2.3.0",
     "mypy>=1.10.0",
     "ruff>=0.4.0",
+    # Using fork until upstream merges pywin32 fix: https://github.com/Skelmis/python-docx/pull/30
+    # Pinned to commit SHA for reproducibility
+    "skelmis-docx @ git+https://github.com/fortaine/python-docx.git@fix/pywin32-version-constraint",
 ]
 
 [project.urls]
@@ -65,6 +78,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.version]
 source = "vcs"
+
+[tool.hatch.metadata]
+# Allow git+ references for dependencies (needed for fork while waiting for upstream PR merge)
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gemini_research_mcp"]

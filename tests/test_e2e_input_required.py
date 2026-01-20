@@ -20,9 +20,7 @@ import os
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from pydantic import BaseModel
-
 
 # Skip all tests in this module if no API key
 pytestmark = pytest.mark.skipif(
@@ -230,7 +228,7 @@ class TestInputRequiredProtocol:
     @pytest.mark.e2e
     async def test_task_support_enabled(self):
         """Verify task support is configured in the server."""
-        from gemini_research_mcp.server import mcp, lifespan
+        from gemini_research_mcp.server import lifespan
 
         # The server should have a lifespan function that enables task support
         assert lifespan is not None
@@ -241,7 +239,7 @@ class TestInputRequiredProtocol:
     @pytest.mark.e2e
     async def test_elicit_schema_has_descriptions(self):
         """Verify dynamic schema includes question descriptions for UI."""
-        from pydantic import create_model, Field
+        from pydantic import Field, create_model
 
         questions = [
             "What specific aspects would you like to compare?",

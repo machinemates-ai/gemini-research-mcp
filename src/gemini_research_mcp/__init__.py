@@ -24,6 +24,14 @@ from gemini_research_mcp.deep import (
 )
 from gemini_research_mcp.quick import quick_research
 from gemini_research_mcp.server import main, mcp
+from gemini_research_mcp.storage import (
+    ResearchSession,
+    SessionStorage,
+    get_research_session,
+    get_storage,
+    list_research_sessions,
+    save_research_session,
+)
 from gemini_research_mcp.types import (
     DeepResearchError,
     DeepResearchProgress,
@@ -44,12 +52,18 @@ __all__ = [
     "ErrorCategory",
     "ParsedCitation",
     "ResearchResult",
+    "ResearchSession",
+    "SessionStorage",
     "Source",
     "deep_research",
     "deep_research_stream",
+    "get_research_session",
+    "get_storage",
+    "list_research_sessions",
     "main",
     "mcp",
     "process_citations",
     "quick_research",
     "research_followup",
+    "save_research_session",
 ]
