@@ -499,6 +499,11 @@ async def research_deep(
 
     if effective_query != query:
         logger.info("   ✨ Using refined query")
+        logger.info("=" * 60)
+        logger.info("📋 FINAL CONSOLIDATED QUERY:")
+        for line in effective_query.split("\n"):
+            logger.info("   %s", line)
+        logger.info("=" * 60)
 
     # ==========================================================================
     # Phase 2: Deep Research Execution

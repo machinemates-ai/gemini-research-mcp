@@ -469,7 +469,7 @@ def _add_toc_field(
 
     # Add clickable preview TOC entries if sections provided
     if sections:
-        for title, level, bookmark_id in sections[:20]:  # Limit preview
+        for title, level, bookmark_id in sections:  # All entries
             toc_para = document.add_paragraph()
             indent_amount = 360000 * (level - 1)  # 0.5 inch per level
             toc_para.paragraph_format.left_indent = indent_amount
@@ -727,16 +727,125 @@ def _render_block_to_docx(  # noqa: C901, PLR0912
         # Skip raw HTML blocks in DOCX
         pass
 
-    elif hasattr(element, "children") and isinstance(element.children, list):
-        # Generic container - recurse into children
-        for child in element.children:
-            _render_block_to_docx(
-                document,
-                child,
-                list_level=list_level,
-                heading_counter=heading_counter,
-                heading_bookmarks=heading_bookmarks,
-            )
+    else:
+        # Check for GFM table elements
+        element_type = type(element).__name__
+
+        if element_type == "Table":
+            # GFM Table - render as proper Word table
+            _render_gfm_table(document, element)
+
+        elif hasattr(element, "children") and isinstance(element.children, list):
+            # Generic container - recurse into children
+            for child in element.children:
+                _render_block_to_docx(
+                    document,
+                    child,
+                    list_level=list_level,
+                    heading_counter=heading_counter,
+                    heading_bookmarks=heading_bookmarks,
+                )
+
+
+def _render_gfm_table(document: Any, table_element: Any) -> None:
+    """
+    Render a GFM (GitHub Flavored Markdown) table to a Word table.
+
+    Handles:
+    - Table headers (first row, bold)
+    - Table body rows
+    - Cell content with basic formatting
+    - Both wrapped (TableHead/TableBody) and unwrapped (direct TableRow) formats
+
+    Args:
+        document: The python-docx Document object
+        table_element: The GFM Table element from marko parser
+    """
+    from docx.shared import Inches, Pt, RGBColor
+
+    # Extract rows from the table element
+    rows_data: list[list[str]] = []
+    has_header = False
+
+    for child in table_element.children:
+        child_type = type(child).__name__
+
+        if child_type == "TableHead":
+            has_header = True
+            for row in child.children:
+                row_type = type(row).__name__
+                if row_type == "TableRow":
+                    cells = []
+                    for cell in row.children:
+                        cells.append(_get_text_content(cell).strip())
+                    if cells:
+                        rows_data.append(cells)
+
+        elif child_type == "TableBody":
+            for row in child.children:
+                row_type = type(row).__name__
+                if row_type == "TableRow":
+                    cells = []
+                    for cell in row.children:
+                        cells.append(_get_text_content(cell).strip())
+                    if cells:
+                        rows_data.append(cells)
+
+        elif child_type == "TableRow":
+            # Direct TableRow children (no TableHead/TableBody wrappers)
+            # First row is treated as header
+            if not rows_data:
+                has_header = True
+            cells = []
+            for cell in child.children:
+                cells.append(_get_text_content(cell).strip())
+            if cells:
+                rows_data.append(cells)
+
+    if not rows_data:
+        return
+
+    # Determine number of columns
+    num_cols = max(len(row) for row in rows_data)
+    num_rows = len(rows_data)
+
+    # Create the Word table
+    table = document.add_table(rows=num_rows, cols=num_cols)
+    table.style = "Table Grid"
+
+    # Professional colors
+    HEADER_BG = RGBColor(0xE7, 0xEF, 0xF8)  # Light blue background
+    NAVY_BLUE = RGBColor(0x1F, 0x49, 0x7D)
+
+    # Fill the table
+    for row_idx, row_data in enumerate(rows_data):
+        row = table.rows[row_idx]
+        is_header = has_header and row_idx == 0
+
+        for col_idx, cell_text in enumerate(row_data):
+            if col_idx >= num_cols:
+                break
+
+            cell = row.cells[col_idx]
+            cell.text = ""
+            para = cell.paragraphs[0]
+            run = para.add_run(cell_text)
+            run.font.size = Pt(10)
+            run.font.name = "Calibri"
+
+            if is_header:
+                run.bold = True
+                run.font.color.rgb = NAVY_BLUE
+                # Set header cell background
+                from docx.oxml import OxmlElement
+                from docx.oxml.ns import qn
+                cell_props = cell._tc.get_or_add_tcPr()
+                shading = OxmlElement("w:shd")
+                shading.set(qn("w:fill"), "E7EFF8")
+                cell_props.append(shading)
+
+    # Add some space after the table
+    document.add_paragraph()
 
 
 def _add_cover_page(document: Any, session: ResearchSession) -> None:
@@ -750,7 +859,8 @@ def _add_cover_page(document: Any, session: ResearchSession) -> None:
     SUBTLE_GRAY = RGBColor(0x88, 0x88, 0x88)
     LIGHT_GRAY = RGBColor(0xAA, 0xAA, 0xAA)
 
-    title = session.title or session.query[:60]
+    # Extract clean title (handles clarified queries)
+    title = _extract_clean_title(session.query, session.title)
 
     # Add vertical space at the top for balanced layout
     for _ in range(4):
@@ -918,9 +1028,9 @@ def export_to_docx(
     - Automatic Table of Contents field (optional)
     - Executive summary as blockquote
     - Metadata table
-    - Full research report with proper formatting
+    - Full research report with proper formatting (including GFM tables)
     - Page breaks before H1 headings (excellence feature)
-    - Support for all CommonMark Markdown features
+    - Support for all CommonMark + GFM Markdown features
 
     Args:
         session: The research session to export
@@ -953,9 +1063,11 @@ def export_to_docx(
     heading_bookmarks: list[str] = []
     parsed = None
     if session.report_text:
-        md = marko.Markdown()
+        # Use GFM extension for table support
+        md = marko.Markdown(extensions=["gfm"])
         parsed = md.parse(session.report_text)
         toc_sections = _extract_headings(parsed)
+
         # Extract just the bookmark IDs for use during rendering
         heading_bookmarks = [bookmark_id for _, _, bookmark_id in toc_sections]
 
@@ -1007,6 +1119,7 @@ def export_to_docx(
         # Render each block element to the Word document
         # Pass bookmark list and mutable counter so headings get bookmarks for TOC links
         heading_counter = [0]  # Mutable counter to track which heading we're on
+
         for element in parsed.children:
             _render_block_to_docx(
                 document,
@@ -1050,10 +1163,31 @@ def export_to_docx(
 # =============================================================================
 
 
+def _extract_clean_title(query: str, title: str | None = None) -> str:
+    """
+    Extract a clean title from a query that may contain clarification context.
+
+    When elicitation occurs, the query is refined to include:
+    "Original query\n\nAdditional context:\nQ: ...\nA: ..."
+
+    This function extracts just the original query portion for display.
+    """
+    if title:
+        return title
+
+    # Check for clarification marker
+    if "\n\nAdditional context:" in query:
+        # Extract just the original query before clarification
+        clean = query.split("\n\nAdditional context:")[0].strip()
+        return clean[:60] if len(clean) > 60 else clean
+
+    return query[:60] if len(query) > 60 else query
+
+
 def _generate_filename(session: ResearchSession, extension: str) -> str:
     """Generate a safe filename from session metadata."""
-    # Use title or first 40 chars of query
-    base = session.title or session.query[:40]
+    # Use title or extract clean title from query
+    base = _extract_clean_title(session.query, session.title)
 
     # Clean up for filename
     safe = re.sub(r"[^\w\s-]", "", base)  # Remove special chars
