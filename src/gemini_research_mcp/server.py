@@ -47,7 +47,11 @@ from gemini_research_mcp.export import (
     ExportResult,
     export_session,
 )
-from gemini_research_mcp.quick import generate_summary, quick_research, semantic_match_session
+from gemini_research_mcp.quick import (
+    generate_session_metadata,
+    quick_research,
+    semantic_match_session,
+)
 from gemini_research_mcp.storage import (
     get_research_session,
     list_research_sessions,
@@ -581,22 +585,19 @@ async def research_deep(
                 if result.usage and result.usage.total_tokens:
                     total_tokens = result.usage.total_tokens
 
-                # Generate summary (first 300 chars of report or query)
-                summary = None
-                if result.text:
-                    # Use AI to generate concise summary (~$0.0003/call)
-                    summary = await generate_summary(
-                        text=result.text,
-                        query=effective_query,
-                        max_chars=300,
-                    )
+                # Generate title and summary in one call (~$0.0003/call)
+                metadata = await generate_session_metadata(
+                    text=result.text or "",
+                    query=effective_query,
+                )
 
                 # Save session for later follow-up (guard against filesystem errors)
                 try:
                     save_research_session(
                         interaction_id=interaction_id,
                         query=effective_query,
-                        summary=summary,
+                        title=metadata.title or None,
+                        summary=metadata.summary or None,
                         report_text=result.text,
                         format_instructions=format_instructions,
                         agent_name=get_deep_research_agent(),

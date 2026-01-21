@@ -170,6 +170,7 @@ uv add 'gemini-research-mcp[docx]'
 |---------|-------------|
 | **Cover Page** | Title, date, duration, tokens, AI agent |
 | **Clickable TOC** | Internal hyperlinks navigate to sections |
+| **Syntax Highlighting** | Pygments-powered code blocks with GitHub colors |
 | **Professional Styling** | Calibri fonts, proper heading hierarchy (H1-H4) |
 | **Page Margins** | Standard 1-inch (2.54cm) margins |
 | **Heading Spacing** | `keep_with_next` prevents orphan headings |

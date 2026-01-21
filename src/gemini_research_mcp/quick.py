@@ -17,6 +17,7 @@ from google.genai.types import (
     ThinkingLevel,
     Tool,
 )
+from pydantic import BaseModel, Field
 
 from gemini_research_mcp.config import (
     DEFAULT_THINKING_LEVEL,
@@ -142,28 +143,42 @@ async def quick_research(
     )
 
 
-async def generate_summary(
+# =============================================================================
+# Metadata Generation (Structured Output)
+# =============================================================================
+
+
+class SessionMetadata(BaseModel):
+    """Generated metadata for a research session."""
+
+    title: str = Field(description="Short descriptive title for the research report")
+    summary: str = Field(description="Concise 2-3 sentence summary of key findings")
+
+
+async def generate_session_metadata(
     text: str,
     query: str,
     *,
-    max_chars: int = 300,
-) -> str:
+    max_title_chars: int = 60,
+    max_summary_chars: int = 300,
+) -> SessionMetadata:
     """
-    Generate a concise summary of research results using Gemini 3.0 Flash.
+    Generate title and summary for a research session in a single API call.
 
-    Uses minimal thinking level for fastest, cheapest summarization.
-    Cost: ~$0.0003 per summary (~100 output tokens).
+    Uses Gemini Flash with Pydantic structured output for efficiency.
+    Cost: ~$0.0003 per call (~100 output tokens, shared input).
 
     Args:
-        text: The full research report text to summarize
+        text: The full research report text
         query: The original research query (for context)
-        max_chars: Maximum characters for summary (default 300)
+        max_title_chars: Maximum characters for title (default 60)
+        max_summary_chars: Maximum characters for summary (default 300)
 
     Returns:
-        A concise summary string
+        SessionMetadata with title and summary
     """
     if not text:
-        return ""
+        return SessionMetadata(title="", summary="")
 
     client = genai.Client(api_key=get_api_key())
     model = get_summary_model()
@@ -173,20 +188,24 @@ async def generate_summary(
     if len(text) > 2000:
         input_text += "..."
 
-    prompt = f"""Summarize this research report in 2-3 sentences (max {max_chars} characters).
-Focus on the key findings and main conclusions.
+    prompt = f"""Analyze this research report and generate metadata.
 
 Original query: {query}
 
 Report:
 {input_text}
 
-Summary:"""
+Generate:
+1. A short, descriptive title (max {max_title_chars} chars) - capture the main topic, 
+   suitable for a document title. No quotes. No "Research on" or "Analysis of" prefixes.
+2. A concise summary (max {max_summary_chars} chars) - 2-3 sentences covering key findings."""
 
     config = GenerateContentConfig(
         thinking_config=ThinkingConfig(
             thinking_level=ThinkingLevel.MINIMAL,
         ),
+        response_mime_type="application/json",
+        response_schema=SessionMetadata,
     )
 
     try:
@@ -195,14 +214,23 @@ Summary:"""
             contents=prompt,
             config=config,
         )
-        summary = (response.text or "").strip()
-        # Ensure we stay within limit
-        if len(summary) > max_chars:
-            summary = summary[: max_chars - 3] + "..."
-        return summary
+
+        # Use response.parsed for automatic Pydantic parsing
+        metadata: SessionMetadata = response.parsed  # type: ignore[assignment]
+
+        # Ensure we stay within limits
+        title = metadata.title.strip().strip('"\'')
+        summary = metadata.summary.strip()
+
+        if len(title) > max_title_chars:
+            title = title[: max_title_chars - 3] + "..."
+        if len(summary) > max_summary_chars:
+            summary = summary[: max_summary_chars - 3] + "..."
+
+        return SessionMetadata(title=title, summary=summary)
     except Exception as e:
-        logger.warning("Summary generation failed: %s", e)
-        return ""
+        logger.warning("Metadata generation failed: %s", e)
+        return SessionMetadata(title="", summary="")
 
 
 async def semantic_match_session(

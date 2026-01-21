@@ -426,6 +426,205 @@ def _add_internal_hyperlink(paragraph: Any, bookmark_id: str, text: str) -> Any:
     return hyperlink
 
 
+def _add_paragraph_shading(paragraph: Any, color_hex: str) -> None:
+    """
+    Add background shading to a paragraph.
+
+    Args:
+        paragraph: The python-docx Paragraph object
+        color_hex: Hex color string without # (e.g., "F5F5F5")
+    """
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    # Get or create pPr element
+    pPr = paragraph._p.get_or_add_pPr()
+
+    # Create shading element
+    shd = OxmlElement("w:shd")
+    shd.set(qn("w:val"), "clear")
+    shd.set(qn("w:color"), "auto")
+    shd.set(qn("w:fill"), color_hex)
+
+    pPr.append(shd)
+
+
+def _add_paragraph_border(paragraph: Any) -> None:
+    """
+    Add a subtle border around a paragraph (for code blocks).
+
+    Creates a light grey border similar to GitHub code blocks.
+    """
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    # Get or create pPr element
+    pPr = paragraph._p.get_or_add_pPr()
+
+    # Create pBdr (paragraph border) element
+    pBdr = OxmlElement("w:pBdr")
+
+    # Add borders on all sides
+    for border_name in ["top", "left", "bottom", "right"]:
+        border = OxmlElement(f"w:{border_name}")
+        border.set(qn("w:val"), "single")
+        border.set(qn("w:sz"), "4")  # 0.5pt border
+        border.set(qn("w:space"), "4")  # 4pt padding
+        border.set(qn("w:color"), "D1D5DA")  # GitHub border grey
+        pBdr.append(border)
+
+    pPr.append(pBdr)
+
+
+def _render_code_block(
+    document: Any,
+    code: str,
+    language: str | None = None,
+) -> None:
+    """
+    Render a code block with optional syntax highlighting using Pygments.
+
+    Creates a GitHub-style code block with:
+    - Light grey background (#F6F8FA)
+    - Subtle border
+    - Syntax highlighting if Pygments is available and language is recognized
+
+    Args:
+        document: The python-docx Document object
+        code: The code text to render
+        language: Optional language identifier (e.g., "python", "javascript")
+    """
+    from docx.shared import Pt, RGBColor
+
+    # Try to use Pygments for syntax highlighting
+    tokens = None
+    if language:
+        try:
+            from pygments import lex
+            from pygments.lexers import get_lexer_by_name
+
+            lexer = get_lexer_by_name(language, stripall=True)
+            tokens = list(lex(code, lexer))
+        except Exception:
+            # Pygments not available or language not recognized - fall back to plain
+            tokens = None
+
+    # Create paragraph with GitHub-style formatting
+    para = document.add_paragraph()
+    para.paragraph_format.left_indent = Pt(12)
+    para.paragraph_format.right_indent = Pt(12)
+    para.paragraph_format.space_before = Pt(8)
+    para.paragraph_format.space_after = Pt(8)
+    _add_paragraph_shading(para, "F6F8FA")  # GitHub code background
+    _add_paragraph_border(para)
+
+    if tokens:
+        # Render with syntax highlighting
+        _render_highlighted_tokens(para, tokens)
+    else:
+        # Plain monospace rendering
+        run = para.add_run(code)
+        run.font.name = "Consolas"
+        run.font.size = Pt(9)
+        run.font.color.rgb = RGBColor(0x24, 0x29, 0x2E)  # GitHub dark text
+
+
+def _render_highlighted_tokens(paragraph: Any, tokens: list[tuple[Any, str]]) -> None:
+    """
+    Render Pygments tokens to a paragraph with appropriate colors.
+
+    Uses a GitHub-inspired color scheme for syntax highlighting.
+
+    Args:
+        paragraph: The python-docx Paragraph object
+        tokens: List of (token_type, token_value) tuples from Pygments
+    """
+    from docx.shared import Pt, RGBColor
+
+    # Import Pygments Token types
+    try:
+        from pygments.token import (
+            Comment,
+            Error,
+            Keyword,
+            Literal,
+            Name,
+            Number,
+            Operator,
+            Punctuation,
+            String,
+        )
+    except ImportError:
+        return
+
+    # GitHub-inspired color scheme
+    # Based on github.com's syntax highlighting
+    COLOR_MAP = {
+        # Keywords (purple)
+        Keyword: RGBColor(0xCF, 0x22, 0x2E),  # Red for keywords
+        Keyword.Constant: RGBColor(0x00, 0x5C, 0xC5),  # Blue
+        Keyword.Declaration: RGBColor(0xCF, 0x22, 0x2E),
+        Keyword.Namespace: RGBColor(0xCF, 0x22, 0x2E),
+        Keyword.Pseudo: RGBColor(0x00, 0x5C, 0xC5),
+        Keyword.Reserved: RGBColor(0xCF, 0x22, 0x2E),
+        Keyword.Type: RGBColor(0x00, 0x5C, 0xC5),
+        # Names
+        Name.Builtin: RGBColor(0x00, 0x5C, 0xC5),  # Blue for builtins
+        Name.Class: RGBColor(0x95, 0x3D, 0xAE),  # Purple for classes
+        Name.Constant: RGBColor(0x00, 0x5C, 0xC5),
+        Name.Decorator: RGBColor(0x95, 0x3D, 0xAE),  # Purple for decorators
+        Name.Exception: RGBColor(0x95, 0x3D, 0xAE),
+        Name.Function: RGBColor(0x6F, 0x42, 0xC1),  # Purple for functions
+        Name.Namespace: RGBColor(0x24, 0x29, 0x2E),
+        Name.Tag: RGBColor(0x22, 0x86, 0x3A),  # Green for tags (HTML/XML)
+        Name.Variable: RGBColor(0xE3, 0x6D, 0x09),  # Orange for variables
+        # Strings (blue)
+        String: RGBColor(0x03, 0x2F, 0x62),  # Dark blue for strings
+        String.Doc: RGBColor(0x6A, 0x73, 0x7D),  # Grey for docstrings
+        String.Escape: RGBColor(0x00, 0x5C, 0xC5),
+        String.Interpol: RGBColor(0x00, 0x5C, 0xC5),
+        String.Regex: RGBColor(0x03, 0x2F, 0x62),
+        # Numbers (blue)
+        Number: RGBColor(0x00, 0x5C, 0xC5),
+        # Comments (grey)
+        Comment: RGBColor(0x6A, 0x73, 0x7D),
+        Comment.Multiline: RGBColor(0x6A, 0x73, 0x7D),
+        Comment.Single: RGBColor(0x6A, 0x73, 0x7D),
+        # Operators
+        Operator: RGBColor(0xCF, 0x22, 0x2E),  # Red
+        Operator.Word: RGBColor(0xCF, 0x22, 0x2E),
+        # Literals
+        Literal: RGBColor(0x00, 0x5C, 0xC5),
+        # Punctuation
+        Punctuation: RGBColor(0x24, 0x29, 0x2E),
+        # Error
+        Error: RGBColor(0xCB, 0x24, 0x31),  # Red for errors
+    }
+
+    # Default color (dark text)
+    DEFAULT_COLOR = RGBColor(0x24, 0x29, 0x2E)
+
+    for token_type, token_value in tokens:
+        if not token_value:
+            continue
+
+        run = paragraph.add_run(token_value)
+        run.font.name = "Consolas"
+        run.font.size = Pt(9)
+
+        # Find color for this token type (check ancestors if exact match not found)
+        color = None
+        current_type = token_type
+        while current_type is not None:
+            if current_type in COLOR_MAP:
+                color = COLOR_MAP[current_type]
+                break
+            # Move up the token hierarchy
+            current_type = current_type.parent if hasattr(current_type, "parent") else None
+
+        run.font.color.rgb = color if color else DEFAULT_COLOR
+
+
 def _add_toc_field(
     document: Any,
     sections: list[tuple[str, int, str]] | None = None,
@@ -688,22 +887,16 @@ def _render_block_to_docx(  # noqa: C901, PLR0912
                             _render_inline_to_paragraph(para, inline)
 
     elif isinstance(element, marko_block.CodeBlock):
-        # Code block with monospace styling
+        # Code block with GitHub-like styling (no language info available)
         text = _get_text_content(element)
-        para = document.add_paragraph()
-        run = para.add_run(text)
-        run.font.name = "Consolas"
-        run.font.size = 90000  # 9pt in EMUs
-        # Add light gray shading for code blocks
-        para.paragraph_format.left_indent = 360000  # 0.5 inch
+        _render_code_block(document, text, language=None)
 
     elif isinstance(element, marko_block.FencedCode):
-        # Fenced code block (```language ... ```)
+        # Fenced code block (```language ... ```) - with syntax highlighting
         text = _get_text_content(element)
-        para = document.add_paragraph()
-        run = para.add_run(text)
-        run.font.name = "Consolas"
-        para.paragraph_format.left_indent = 360000  # 0.5 inch
+        # Get language from the fenced code info string
+        language = getattr(element, "lang", None) or None
+        _render_code_block(document, text, language=language)
 
     elif isinstance(element, marko_block.Quote):
         # Blockquote - indent and italicize
@@ -844,8 +1037,7 @@ def _render_gfm_table(document: Any, table_element: Any) -> None:
                 shading.set(qn("w:fill"), HEADER_BG)
                 cell_props.append(shading)
 
-    # Add some space after the table
-    document.add_paragraph()
+    # Space after table is handled by next paragraph's space_before
 
 
 def _add_cover_page(document: Any, session: ResearchSession) -> None:
@@ -877,17 +1069,6 @@ def _add_cover_page(document: Any, session: ResearchSession) -> None:
         run.font.size = Pt(32)
         run.font.color.rgb = NAVY_BLUE
         run.bold = False
-
-    # Subtitle with query if different from title (in quotes, italicized)
-    if session.title and session.query != session.title:
-        subtitle = document.add_paragraph()
-        subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = subtitle.add_run(f'"{session.query}"')
-        run.font.name = "Calibri"
-        run.italic = True
-        run.font.size = Pt(13)
-        run.font.color.rgb = DARK_GRAY
-        subtitle.paragraph_format.space_after = Pt(48)
 
     # Generous vertical space
     for _ in range(3):
@@ -1010,7 +1191,7 @@ def _add_metadata_table(document: Any, session: ResearchSession) -> None:
         run1.font.size = Pt(10)
         cell1.width = Inches(4.5)
 
-    document.add_paragraph()  # Space after table
+    # Space after table is handled by next paragraph's space_before
 
 
 def export_to_docx(
@@ -1085,7 +1266,7 @@ def export_to_docx(
 
         # Add pre-populated clickable TOC entries from the report
         _add_toc_field(document, toc_sections)
-        document.add_page_break()  # type: ignore[no-untyped-call]
+        # Note: No page break needed here - Document Info has page_break_before=True
 
     # Document Information section - on its own page for professional look
     info_heading = document.add_heading("Document Information", level=1)
@@ -1101,8 +1282,8 @@ def export_to_docx(
         summary_heading = document.add_heading("Executive Summary", level=1)
         for run in summary_heading.runs:
             run.font.color.rgb = RGBColor(0x1F, 0x49, 0x7D)
-        # New page for summary
-        summary_heading.paragraph_format.page_break_before = True
+        # No page break - flows naturally after Document Information
+        summary_heading.paragraph_format.space_before = Pt(24)
 
         # Render summary in an elegant box-like style
         summary_para = document.add_paragraph()
@@ -1128,11 +1309,13 @@ def export_to_docx(
                 heading_bookmarks=heading_bookmarks,
             )
 
-    # Minimal, subtle document footer (no decorative lines)
-    document.add_paragraph()  # Space before footer
-    document.add_paragraph()  # Extra breathing room
-
-    footer_para = document.add_paragraph()
+    # Add attribution to Word's footer section (margin area at bottom of pages)
+    # This avoids page break issues that occur with body paragraphs
+    section = document.sections[-1]  # Last section
+    footer = section.footer
+    footer.is_linked_to_previous = False
+    footer_para = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+    footer_para.clear()  # Clear any existing content
     footer_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     gen_run = footer_para.add_run(
         f"Generated by Gemini Research MCP • "
