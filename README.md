@@ -12,25 +12,66 @@ MCP server for AI-powered research using **Gemini**. Fast grounded search + comp
 |------|-------------|---------|
 | `research_web` | Fast web search with citations | 5-30 sec |
 | `research_deep` | Multi-step autonomous research | 3-20 min |
+| `resume_research` | Resume interrupted/in-progress sessions | instant |
 | `research_followup` | Continue conversation after research | 5-30 sec |
 | `list_research_sessions` | List saved research sessions | instant |
 | `export_research_session` | Export to Markdown, JSON, or DOCX | instant |
 
-### Workflow
+### Power User Workflow
 
+```mermaid
+flowchart TD
+    subgraph START ["🚀 Start Research"]
+        A[Quick Question?] -->|Yes| B["research_web<br/>⚡ 5-30 sec"]
+        A -->|Deep Analysis| C["research_deep<br/>🔬 3-20 min"]
+    end
+
+    subgraph INTERRUPT ["⚠️ Interruption"]
+        C --> D{VS Code closes?<br/>Laptop sleeps?<br/>Network drops?}
+        D -->|Yes| E["Session saved with<br/>interaction_id at START"]
+        E --> F["Gemini continues<br/>researching on servers"]
+    end
+
+    subgraph RESUME ["🔄 Resume Later"]
+        F --> G[Reopen VS Code]
+        G --> H["resume_research<br/>Check session status"]
+        H -->|Completed| I["✅ Retrieve full report"]
+        H -->|Still running| J["⏳ Poll for completion"]
+        J --> H
+    end
+
+    subgraph EXPLORE ["💬 Explore Results"]
+        B --> K{Need more<br/>depth?}
+        K -->|Yes| C
+        K -->|No| L[Done]
+        I --> M["research_followup<br/>Drill into sections"]
+        M --> M
+        M --> N{Share?}
+    end
+
+    subgraph EXPORT ["📤 Export & Archive"]
+        N -->|Yes| O["export_research_session"]
+        O --> P["📄 DOCX - Share with team"]
+        O --> Q["📝 Markdown - Import to another AI"]
+        O --> R["🔧 JSON - Programmatic use"]
+    end
+
+    subgraph LATER ["📅 Months Later"]
+        S["What did I research<br/>about quantum computing?"] --> T["list_research_sessions"]
+        T --> U["Find old session"]
+        U --> M
+        U --> O
+    end
+
+    style START fill:#e8f5e9
+    style INTERRUPT fill:#fff3e0
+    style RESUME fill:#e3f2fd
+    style EXPLORE fill:#f3e5f5
+    style EXPORT fill:#fce4ec
+    style LATER fill:#e0f7fa
 ```
-research_web  ─── quick lookup ───▶  Got what you need?  ── yes ──▶ Done
-       │                                        │
-       │                                       no
-       │                                        ▼
-       └──────────────────────────────▶  research_deep  ──▶  Comprehensive report
-                                                 │
-                                                 ▼
-                                        research_followup  ──▶  Dive deeper
-                                                 │
-                                                 ▼
-                                      export_research_session  ──▶  Share as DOCX/MD
-```
+
+> **Key insight**: Gemini Deep Research runs asynchronously on Google's servers. Even if VS Code disconnects, your research continues. The `resume_research` tool retrieves completed work.
 
 ### Features
 
