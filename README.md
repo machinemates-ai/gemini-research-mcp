@@ -29,6 +29,7 @@ flowchart TD
     subgraph INTERRUPT ["⚠️ Interruption"]
         C --> D{VS Code closes?<br/>Laptop sleeps?<br/>Network drops?}
         D -->|Yes| E["Session saved with<br/>interaction_id at START"]
+        D -->|No| I
         E --> F["Gemini continues<br/>researching on servers"]
     end
 
@@ -42,11 +43,13 @@ flowchart TD
 
     subgraph EXPLORE ["💬 Explore Results"]
         B --> K{Need more<br/>depth?}
-        K -->|Yes| C
+        K -->|"Deep dive"| C
+        K -->|"Follow-up"| M
         K -->|No| L[Done]
         I --> M["research_followup<br/>Drill into sections"]
         M --> M
         M --> N{Share?}
+        N -->|No| L
     end
 
     subgraph EXPORT ["📤 Export & Archive"]
@@ -54,9 +57,11 @@ flowchart TD
         O --> P["📄 DOCX - Share with team"]
         O --> Q["📝 Markdown - Import to another AI"]
         O --> R["🔧 JSON - Programmatic use"]
+        P & Q & R --> L
     end
 
     subgraph LATER ["📅 Months Later"]
+        L -.->|"Time passes..."| S
         S["What did I research<br/>about quantum computing?"] --> T["list_research_sessions"]
         T --> U["Find old session"]
         U --> M
