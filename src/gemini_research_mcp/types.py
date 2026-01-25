@@ -28,6 +28,12 @@ class ErrorCategory(str, Enum):
     API_ERROR = "API_ERROR"  # Other API errors
 
 
+class DeepResearchAgent(str, Enum):
+    """Supported agent for deep research."""
+
+    DEEP_RESEARCH_PRO = "deep-research-pro-preview-12-2025"
+
+
 def _categorize_error_message(message: str) -> ErrorCategory:
     """Infer error category from error message."""
     msg_lower = message.lower()

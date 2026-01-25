@@ -31,6 +31,7 @@ import platformdirs
 from key_value.aio.stores.disk import DiskStore
 
 from gemini_research_mcp.config import LOGGER_NAME
+from gemini_research_mcp.types import DeepResearchAgent
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -108,7 +109,7 @@ class ResearchSession:
     summary: str | None = None  # AI-generated synopsis for discovery
     report_text: str | None = None  # Full research report
     format_instructions: str | None = None
-    agent_name: str | None = None
+    agent_name: DeepResearchAgent | None = None
     duration_seconds: float | None = None
     total_tokens: int | None = None
     expires_at: float | None = None  # Unix timestamp
@@ -169,8 +170,10 @@ class ResearchSession:
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = asdict(self)
-        # Convert enum to string for JSON serialization
+        # Convert enums to string for JSON serialization
         result["status"] = self.status.value
+        if self.agent_name is not None:
+            result["agent_name"] = self.agent_name.value
         return result
 
     @classmethod
@@ -188,6 +191,12 @@ class ResearchSession:
         if missing:
             raise KeyError(f"Missing required fields: {', '.join(missing)}")
 
+        # Handle agent_name enum
+        agent_name_raw = data.get("agent_name")
+        agent_name = (
+            DeepResearchAgent(agent_name_raw) if agent_name_raw is not None else None
+        )
+
         return cls(
             interaction_id=data["interaction_id"],
             query=data["query"],
@@ -196,7 +205,7 @@ class ResearchSession:
             summary=data.get("summary"),
             report_text=data.get("report_text"),
             format_instructions=data.get("format_instructions"),
-            agent_name=data.get("agent_name"),
+            agent_name=agent_name,
             duration_seconds=data.get("duration_seconds"),
             total_tokens=data.get("total_tokens"),
             expires_at=data.get("expires_at"),
@@ -536,7 +545,7 @@ def save_research_session(
     summary: str | None = None,
     report_text: str | None = None,
     format_instructions: str | None = None,
-    agent_name: str | None = None,
+    agent_name: DeepResearchAgent | None = None,
     duration_seconds: float | None = None,
     total_tokens: int | None = None,
     tags: list[str] | None = None,

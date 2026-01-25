@@ -22,6 +22,7 @@ from gemini_research_mcp.config import (
     get_model,
     is_retryable_error,
 )
+from gemini_research_mcp.types import DeepResearchAgent
 
 
 class TestConstants:
@@ -99,10 +100,17 @@ class TestGetDeepResearchAgent:
             os.environ.pop("DEEP_RESEARCH_AGENT", None)
             assert get_deep_research_agent() == DEFAULT_DEEP_RESEARCH_AGENT
 
-    def test_returns_env_override(self):
-        """Should return env override when set."""
+    def test_returns_enum_type(self):
+        """Should return DeepResearchAgent enum type."""
+        agent = get_deep_research_agent()
+        assert isinstance(agent, DeepResearchAgent)
+        assert agent == DeepResearchAgent.DEEP_RESEARCH_PRO
+
+    def test_env_override_ignored(self):
+        """Environment variable override should be ignored (only one agent supported)."""
         with patch.dict(os.environ, {"DEEP_RESEARCH_AGENT": "custom-agent"}):
-            assert get_deep_research_agent() == "custom-agent"
+            # Should still return the only supported agent
+            assert get_deep_research_agent() == DeepResearchAgent.DEEP_RESEARCH_PRO
 
 
 class TestIsRetryableError:

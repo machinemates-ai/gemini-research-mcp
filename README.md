@@ -19,62 +19,7 @@ MCP server for AI-powered research using **Gemini**. Fast grounded search + comp
 
 ### Power User Workflow
 
-```mermaid
-flowchart TD
-    subgraph START ["🚀 Start Research"]
-        A[Quick Question?] -->|Yes| B["research_web<br/>⚡ 5-30 sec"]
-        A -->|Deep Analysis| C["research_deep<br/>🔬 3-20 min"]
-    end
-
-    subgraph INTERRUPT ["⚠️ Interruption"]
-        C --> D{VS Code closes?<br/>Laptop sleeps?<br/>Network drops?}
-        D -->|Yes| E["Session saved with<br/>interaction_id at START"]
-        D -->|No| I
-        E --> F["Gemini continues<br/>researching on servers"]
-    end
-
-    subgraph RESUME ["🔄 Resume Later"]
-        F --> G[Reopen VS Code]
-        G --> H["resume_research<br/>Check session status"]
-        H -->|Completed| I["✅ Retrieve full report"]
-        H -->|Still running| J["⏳ Poll for completion"]
-        J --> H
-    end
-
-    subgraph EXPLORE ["💬 Explore Results"]
-        B --> K{Need more<br/>depth?}
-        K -->|"Deep dive"| C
-        K -->|"Follow-up"| M
-        K -->|No| L[Done]
-        I --> M["research_followup<br/>Drill into sections"]
-        M --> M
-        M --> N{Share?}
-        N -->|No| L
-    end
-
-    subgraph EXPORT ["📤 Export & Archive"]
-        N -->|Yes| O["export_research_session"]
-        O --> P["📄 DOCX - Share with team"]
-        O --> Q["📝 Markdown - Import to another AI"]
-        O --> R["🔧 JSON - Programmatic use"]
-        P & Q & R --> L
-    end
-
-    subgraph LATER ["📅 Months Later"]
-        L -.->|"Time passes..."| S
-        S["What did I research<br/>about quantum computing?"] --> T["list_research_sessions"]
-        T --> U["Find old session"]
-        U --> M
-        U --> O
-    end
-
-    style START fill:#e8f5e9
-    style INTERRUPT fill:#fff3e0
-    style RESUME fill:#e3f2fd
-    style EXPLORE fill:#f3e5f5
-    style EXPORT fill:#fce4ec
-    style LATER fill:#e0f7fa
-```
+![Power User Workflow](docs/workflow.svg)
 
 > **Key insight**: Gemini Deep Research runs asynchronously on Google's servers. Even if VS Code disconnects, your research continues. The `resume_research` tool retrieves completed work.
 

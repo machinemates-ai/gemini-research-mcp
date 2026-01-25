@@ -14,6 +14,7 @@ from gemini_research_mcp.storage import (
     get_storage_dir,
     get_ttl_seconds,
 )
+from gemini_research_mcp.types import DeepResearchAgent
 
 # =============================================================================
 # Fixtures
@@ -34,7 +35,7 @@ def sample_session() -> ResearchSession:
         query="What is quantum computing?",
         created_at=time.time(),
         title="Quantum Computing Research",
-        agent_name="gemini-2.0-flash",
+        agent_name=DeepResearchAgent.DEEP_RESEARCH_PRO,
         duration_seconds=45.5,
         total_tokens=1500,
         tags=["physics", "computing"],
