@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Create enriched workflow diagram via Excalidraw API."""
+"""Create enriched workflow diagram via Excalidraw API and save to .excalidraw file."""
+
+import json
+from pathlib import Path
 
 import requests
 
 API = "http://localhost:3031/api/elements"
+OUTPUT_FILE = Path(__file__).parent.parent / "docs" / "workflow.excalidraw"
 
 
 def create(el):
@@ -18,6 +22,26 @@ def clear_canvas():
     for el in r.json().get("elements", []):
         requests.delete(f"{API}/{el['id']}")
     print("Canvas cleared")
+
+
+def export_to_file():
+    """Export canvas elements to .excalidraw file."""
+    r = requests.get(API)
+    data = r.json()
+    elements = data.get("elements", [])
+    
+    excalidraw_doc = {
+        "type": "excalidraw",
+        "version": 2,
+        "source": "gemini-research-mcp",
+        "elements": elements,
+        "appState": {
+            "viewBackgroundColor": "#ffffff"
+        }
+    }
+    
+    OUTPUT_FILE.write_text(json.dumps(excalidraw_doc, indent=2))
+    print(f"Exported to {OUTPUT_FILE}")
 
 
 def main():
@@ -221,6 +245,9 @@ def main():
             "text": "↗ export", "fontSize": 8})
 
     print("Diagram created successfully!")
+    
+    # Export to .excalidraw file
+    export_to_file()
 
 
 if __name__ == "__main__":
