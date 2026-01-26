@@ -14,21 +14,36 @@ from google.genai.types import (
     GenerateContentConfig,
     GoogleSearch,
     ThinkingConfig,
+    ThinkingLevel,
     Tool,
 )
 
 from gemini_research_mcp.config import (
+    DEFAULT_THINKING_LEVEL,
+    LOGGER_NAME,
     default_system_prompt,
     get_api_key,
     get_model,
-    get_thinking_budget,
 )
 from gemini_research_mcp.types import ResearchResult, Source
 
 if TYPE_CHECKING:
     from google.genai.types import GenerateContentResponse
 
-logger = logging.getLogger("gemini-research-mcp")
+logger = logging.getLogger(LOGGER_NAME)
+
+# Map string levels to ThinkingLevel enum
+THINKING_LEVEL_MAP = {
+    "minimal": ThinkingLevel.MINIMAL,
+    "low": ThinkingLevel.LOW,
+    "medium": ThinkingLevel.MEDIUM,
+    "high": ThinkingLevel.HIGH,
+}
+
+
+def _get_thinking_level(level: str) -> ThinkingLevel:
+    """Convert string level to ThinkingLevel enum."""
+    return THINKING_LEVEL_MAP.get(level.lower(), ThinkingLevel.HIGH)
 
 
 def _extract_sources(response: GenerateContentResponse) -> tuple[list[Source], list[str]]:
@@ -67,7 +82,7 @@ async def quick_research(
     query: str,
     *,
     model: str | None = None,
-    thinking_budget: str | int = "medium",
+    thinking_level: str = DEFAULT_THINKING_LEVEL,
     system_instruction: str | None = None,
     include_thoughts: bool = False,
 ) -> ResearchResult:
@@ -79,8 +94,8 @@ async def quick_research(
 
     Args:
         query: Research question or topic
-        model: Gemini model (default: gemini-2.5-flash)
-        thinking_budget: Token budget or level name
+        model: Gemini model (default: gemini-3-flash-preview)
+        thinking_level: Thinking depth: 'minimal', 'low', 'medium', 'high' (default)
         system_instruction: Optional system prompt
         include_thoughts: If True, include thinking summary in result
 
@@ -89,12 +104,12 @@ async def quick_research(
     """
     client = genai.Client(api_key=get_api_key())
     model = model or get_model()
-    budget = get_thinking_budget(thinking_budget)
+    level = _get_thinking_level(thinking_level)
 
     config = GenerateContentConfig(
         tools=[Tool(google_search=GoogleSearch())],
         thinking_config=ThinkingConfig(
-            thinking_budget=budget,
+            thinking_level=level,
             include_thoughts=include_thoughts,
         ),
         system_instruction=system_instruction or default_system_prompt(),

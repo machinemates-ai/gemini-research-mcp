@@ -7,8 +7,13 @@ All configuration is loaded from environment variables with sensible defaults.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
 from datetime import date
+
+# =============================================================================
+# Logging
+# =============================================================================
+
+LOGGER_NAME = "gemini-research-mcp"
 
 
 # =============================================================================
@@ -16,20 +21,17 @@ from datetime import date
 # =============================================================================
 
 # Default models - can be overridden via environment
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3-flash-preview"
 # Interactions Deep Research agent name (preview; override via DEEP_RESEARCH_AGENT if needed)
 DEFAULT_DEEP_RESEARCH_AGENT = "deep-research-pro-preview-12-2025"
 
-# Thinking budget mapping (token counts for gemini-2.5-flash: 0-24576)
-THINKING_BUDGETS = {
-    "minimal": 0,
-    "low": 2048,
-    "medium": 8192,
-    "high": 16384,
-    "max": 24576,
-    "dynamic": -1,
-}
-DEFAULT_THINKING_BUDGET = 8192
+# Thinking level for Gemini 3 models
+# Values: "minimal", "low", "medium", "high"
+# - minimal: minimize latency for chat/high-throughput
+# - low: balance speed and quality
+# - medium: good reasoning depth
+# - high: maximum reasoning depth (recommended for research)
+DEFAULT_THINKING_LEVEL = "high"
 
 
 # =============================================================================
@@ -79,13 +81,6 @@ def get_deep_research_agent() -> str:
     return os.environ.get("DEEP_RESEARCH_AGENT", DEFAULT_DEEP_RESEARCH_AGENT)
 
 
-def get_thinking_budget(level_or_budget: str | int) -> int:
-    """Convert thinking level name or direct budget to token count."""
-    if isinstance(level_or_budget, int):
-        return level_or_budget
-    return THINKING_BUDGETS.get(level_or_budget, DEFAULT_THINKING_BUDGET)
-
-
 def is_retryable_error(error_msg: str) -> bool:
     """Check if an error message indicates a retryable condition."""
     error_lower = str(error_msg).lower()
@@ -106,32 +101,3 @@ When answering questions:
 
 Your goal is to provide comprehensive, factual answers that would satisfy
 a professional researcher."""
-
-
-# =============================================================================
-# ExternalApi Configuration (for Vendor Docs)
-# =============================================================================
-
-
-@dataclass(slots=True)
-class ExternalApiConfig:
-    """Configuration for ExternalApi grounding endpoint."""
-
-    endpoint: str
-    api_key: str
-    vendor: str | None = None
-
-
-def get_external_api_config() -> ExternalApiConfig | None:
-    """Get ExternalApi configuration from environment."""
-    endpoint = os.environ.get("EXTERNAL_API_ENDPOINT")
-    api_key = os.environ.get("EXTERNAL_API_KEY")
-
-    if not endpoint or not api_key:
-        return None
-
-    return ExternalApiConfig(
-        endpoint=endpoint,
-        api_key=api_key,
-        vendor=os.environ.get("EXTERNAL_API_VENDOR"),
-    )

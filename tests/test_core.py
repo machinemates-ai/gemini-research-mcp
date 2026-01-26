@@ -1,6 +1,6 @@
 """Unit tests for core research functions.
 
-Tests thinking budget parsing and system prompt generation.
+Tests thinking level parsing and system prompt generation.
 Run with: uv run pytest tests/ -v
 """
 
@@ -9,47 +9,44 @@ from datetime import date
 
 from gemini_research_mcp.config import (
     DEFAULT_MODEL,
-    DEFAULT_THINKING_BUDGET,
-    THINKING_BUDGETS,
-    get_thinking_budget,
+    DEFAULT_THINKING_LEVEL,
     default_system_prompt,
 )
-
-# Aliases matching old test expectations
-_get_thinking_budget = get_thinking_budget
-_default_system_prompt = default_system_prompt
+from gemini_research_mcp.quick import _get_thinking_level, THINKING_LEVEL_MAP
+from google.genai.types import ThinkingLevel
 
 
-class TestThinkingBudget:
-    """Test thinking budget parsing."""
+class TestThinkingLevel:
+    """Test thinking level parsing for Gemini 3 models."""
 
     @pytest.mark.parametrize("level,expected", [
-        ("minimal", 0),
-        ("low", 2048),
-        ("medium", 8192),
-        ("high", 16384),
-        ("max", 24576),
-        ("dynamic", -1),
+        ("minimal", ThinkingLevel.MINIMAL),
+        ("low", ThinkingLevel.LOW),
+        ("medium", ThinkingLevel.MEDIUM),
+        ("high", ThinkingLevel.HIGH),
     ])
-    def test_named_levels(self, level: str, expected: int):
-        """Named levels should map to correct token counts."""
-        assert _get_thinking_budget(level) == expected
+    def test_named_levels(self, level: str, expected: ThinkingLevel):
+        """Named levels should map to correct ThinkingLevel enum."""
+        assert _get_thinking_level(level) == expected
 
-    def test_integer_passthrough(self):
-        """Integer values should pass through unchanged."""
-        assert _get_thinking_budget(4096) == 4096
-        assert _get_thinking_budget(0) == 0
-        assert _get_thinking_budget(24576) == 24576
+    def test_case_insensitive(self):
+        """Level names should be case-insensitive."""
+        assert _get_thinking_level("HIGH") == ThinkingLevel.HIGH
+        assert _get_thinking_level("High") == ThinkingLevel.HIGH
 
-    def test_unknown_level_uses_default(self):
-        """Unknown level names should use default budget."""
-        assert _get_thinking_budget("unknown") == DEFAULT_THINKING_BUDGET
-        assert _get_thinking_budget("super_high") == DEFAULT_THINKING_BUDGET
+    def test_unknown_level_defaults_to_high(self):
+        """Unknown level names should default to HIGH."""
+        assert _get_thinking_level("unknown") == ThinkingLevel.HIGH
+        assert _get_thinking_level("max") == ThinkingLevel.HIGH  # 'max' not valid for Gemini 3
 
-    def test_thinking_budgets_dict_complete(self):
-        """THINKING_BUDGETS should have all expected levels."""
-        expected = {"minimal", "low", "medium", "high", "max", "dynamic"}
-        assert set(THINKING_BUDGETS.keys()) == expected
+    def test_level_map_complete(self):
+        """THINKING_LEVEL_MAP should have all expected levels."""
+        expected = {"minimal", "low", "medium", "high"}
+        assert set(THINKING_LEVEL_MAP.keys()) == expected
+
+    def test_default_is_high(self):
+        """Default thinking level should be 'high'."""
+        assert DEFAULT_THINKING_LEVEL == "high"
 
 
 class TestSystemPrompt:
@@ -57,24 +54,24 @@ class TestSystemPrompt:
 
     def test_includes_current_date(self):
         """System prompt should include current date."""
-        prompt = _default_system_prompt()
+        prompt = default_system_prompt()
         today = date.today().strftime("%B %d, %Y")
         assert today in prompt
 
     def test_mentions_research_role(self):
         """System prompt should establish research analyst role."""
-        prompt = _default_system_prompt()
+        prompt = default_system_prompt()
         assert "research" in prompt.lower()
         assert "analyst" in prompt.lower() or "expert" in prompt.lower()
 
     def test_mentions_citations(self):
         """System prompt should mention citing sources."""
-        prompt = _default_system_prompt()
+        prompt = default_system_prompt()
         assert "cite" in prompt.lower() or "source" in prompt.lower()
 
     def test_reasonable_length(self):
         """System prompt should be reasonably sized."""
-        prompt = _default_system_prompt()
+        prompt = default_system_prompt()
         assert 200 < len(prompt) < 2000, f"Prompt length {len(prompt)} seems unusual"
 
 
@@ -85,7 +82,6 @@ class TestConstants:
         """Default model should be a Gemini model."""
         assert "gemini" in DEFAULT_MODEL.lower()
 
-    def test_default_thinking_budget_is_medium(self):
-        """Default thinking budget should be medium (8192)."""
-        assert DEFAULT_THINKING_BUDGET == 8192
-        assert DEFAULT_THINKING_BUDGET == THINKING_BUDGETS["medium"]
+    def test_default_thinking_level_is_high(self):
+        """Default thinking level should be 'high' for quality results."""
+        assert DEFAULT_THINKING_LEVEL == "high"

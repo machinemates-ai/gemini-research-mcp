@@ -25,11 +25,16 @@ keywords = [
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+    "Typing :: Typed",
 ]
 dependencies = [
     "google-genai>=1.57.0",
@@ -51,6 +56,8 @@ gemini-research-mcp = "gemini_research_mcp.server:main"
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.0.0",
+    "pytest-timeout>=2.3.0",
     "ruff>=0.4.0",
     "mypy>=1.10.0",
 ]
