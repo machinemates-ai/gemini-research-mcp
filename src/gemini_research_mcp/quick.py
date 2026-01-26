@@ -233,6 +233,78 @@ Generate:
         return SessionMetadata(title="", summary="")
 
 
+class TitleOnly(BaseModel):
+    """Structured output for title generation from query."""
+
+    title: str = Field(description="Short descriptive title for the research topic")
+
+
+async def generate_title_from_query(
+    query: str,
+    *,
+    max_chars: int = 60,
+) -> str:
+    """
+    Generate a descriptive title from just the research query.
+
+    Uses Gemini Flash with minimal thinking for fast generation.
+    Cost: ~$0.0001 per call (very short input/output).
+
+    This is used at the START of research before we have results,
+    so we generate a title based on what the user is asking about.
+
+    Args:
+        query: The research query
+        max_chars: Maximum characters for title (default 60)
+
+    Returns:
+        A descriptive title, or empty string on failure
+    """
+    if not query:
+        return ""
+
+    client = genai.Client(api_key=get_api_key())
+    model = get_summary_model()
+
+    # Truncate query if very long
+    input_query = query[:500] if len(query) > 500 else query
+
+    prompt = f"""Generate a short, descriptive title for this research request.
+
+Research request: {input_query}
+
+Generate a title (max {max_chars} chars) that captures the main topic.
+- No quotes
+- No "Research on" or "Analysis of" prefixes
+- Clear and concise, suitable for a document title"""
+
+    config = GenerateContentConfig(
+        thinking_config=ThinkingConfig(
+            thinking_level=ThinkingLevel.MINIMAL,
+        ),
+        response_mime_type="application/json",
+        response_schema=TitleOnly,
+    )
+
+    try:
+        response = await client.aio.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=config,
+        )
+
+        result: TitleOnly = response.parsed  # type: ignore[assignment]
+        title = result.title.strip().strip('"\'')
+
+        if len(title) > max_chars:
+            title = title[: max_chars - 3] + "..."
+
+        return title
+    except Exception as e:
+        logger.warning("Title generation failed: %s", e)
+        return ""
+
+
 async def semantic_match_session(
     user_query: str,
     sessions: list[dict[str, str]],

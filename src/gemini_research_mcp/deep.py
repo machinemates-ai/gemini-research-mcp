@@ -37,6 +37,7 @@ from gemini_research_mcp.config import (
     is_retryable_error,
 )
 from gemini_research_mcp.types import (
+    DeepResearchAgent,
     DeepResearchError,
     DeepResearchProgress,
     DeepResearchResult,
@@ -201,7 +202,7 @@ async def deep_research_stream(
     *,
     format_instructions: str | None = None,
     file_search_store_names: list[str] | None = None,
-    agent_name: str | None = None,
+    agent_name: DeepResearchAgent | None = None,
 ) -> AsyncIterator[DeepResearchProgress]:
     """
     Stream deep research with real-time progress updates.
@@ -556,7 +557,7 @@ async def deep_research(
     format_instructions: str | None = None,
     file_search_store_names: list[str] | None = None,
     on_progress: Callable[[DeepResearchProgress], None | Awaitable[None]] | None = None,
-    agent_name: str | None = None,
+    agent_name: DeepResearchAgent | None = None,
     resolve_citations: bool = True,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> DeepResearchResult:

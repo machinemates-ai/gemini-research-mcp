@@ -33,6 +33,7 @@ from gemini_research_mcp.storage import (
     save_research_session,
 )
 from gemini_research_mcp.types import (
+    DeepResearchAgent,
     DeepResearchError,
     DeepResearchProgress,
     DeepResearchResult,
@@ -45,6 +46,7 @@ from gemini_research_mcp.types import (
 
 __all__ = [
     "__version__",
+    "DeepResearchAgent",
     "DeepResearchError",
     "DeepResearchProgress",
     "DeepResearchResult",

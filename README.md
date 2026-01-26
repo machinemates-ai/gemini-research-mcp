@@ -12,25 +12,16 @@ MCP server for AI-powered research using **Gemini**. Fast grounded search + comp
 |------|-------------|---------|
 | `research_web` | Fast web search with citations | 5-30 sec |
 | `research_deep` | Multi-step autonomous research | 3-20 min |
+| `resume_research` | Resume interrupted/in-progress sessions | instant |
 | `research_followup` | Continue conversation after research | 5-30 sec |
 | `list_research_sessions` | List saved research sessions | instant |
 | `export_research_session` | Export to Markdown, JSON, or DOCX | instant |
 
-### Workflow
+### Power User Workflow
 
-```
-research_web  ─── quick lookup ───▶  Got what you need?  ── yes ──▶ Done
-       │                                        │
-       │                                       no
-       │                                        ▼
-       └──────────────────────────────▶  research_deep  ──▶  Comprehensive report
-                                                 │
-                                                 ▼
-                                        research_followup  ──▶  Dive deeper
-                                                 │
-                                                 ▼
-                                      export_research_session  ──▶  Share as DOCX/MD
-```
+![Power User Workflow](docs/workflow.svg)
+
+> **Key insight**: Gemini Deep Research runs asynchronously on Google's servers. Even if VS Code disconnects, your research continues. The `resume_research` tool retrieves completed work.
 
 ### Features
 

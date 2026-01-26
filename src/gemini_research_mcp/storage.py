@@ -23,6 +23,7 @@ import time
 from collections.abc import Coroutine
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -30,6 +31,7 @@ import platformdirs
 from key_value.aio.stores.disk import DiskStore
 
 from gemini_research_mcp.config import LOGGER_NAME
+from gemini_research_mcp.types import DeepResearchAgent
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -87,6 +89,15 @@ def get_ttl_seconds() -> int:
 # =============================================================================
 
 
+class ResearchStatus(str, Enum):
+    """Status of a research session for resume functionality."""
+
+    IN_PROGRESS = "in_progress"  # Research started, not yet completed
+    COMPLETED = "completed"  # Research finished successfully
+    FAILED = "failed"  # Research failed with error
+    INTERRUPTED = "interrupted"  # Research interrupted (VS Code disconnected, etc.)
+
+
 @dataclass
 class ResearchSession:
     """A stored research session with metadata."""
@@ -98,12 +109,13 @@ class ResearchSession:
     summary: str | None = None  # AI-generated synopsis for discovery
     report_text: str | None = None  # Full research report
     format_instructions: str | None = None
-    agent_name: str | None = None
+    agent_name: DeepResearchAgent | None = None
     duration_seconds: float | None = None
     total_tokens: int | None = None
     expires_at: float | None = None  # Unix timestamp
     tags: list[str] = field(default_factory=list)
     notes: str | None = None  # User-added notes
+    status: ResearchStatus = ResearchStatus.COMPLETED  # For resume functionality
 
     def __post_init__(self) -> None:
         """Set expiration if not provided."""
@@ -157,7 +169,12 @@ class ResearchSession:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
-        return asdict(self)
+        result = asdict(self)
+        # Convert enums to string for JSON serialization
+        result["status"] = self.status.value
+        if self.agent_name is not None:
+            result["agent_name"] = self.agent_name.value
+        return result
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ResearchSession:
@@ -174,6 +191,12 @@ class ResearchSession:
         if missing:
             raise KeyError(f"Missing required fields: {', '.join(missing)}")
 
+        # Handle agent_name enum
+        agent_name_raw = data.get("agent_name")
+        agent_name = (
+            DeepResearchAgent(agent_name_raw) if agent_name_raw is not None else None
+        )
+
         return cls(
             interaction_id=data["interaction_id"],
             query=data["query"],
@@ -182,13 +205,19 @@ class ResearchSession:
             summary=data.get("summary"),
             report_text=data.get("report_text"),
             format_instructions=data.get("format_instructions"),
-            agent_name=data.get("agent_name"),
+            agent_name=agent_name,
             duration_seconds=data.get("duration_seconds"),
             total_tokens=data.get("total_tokens"),
             expires_at=data.get("expires_at"),
             tags=data.get("tags", []),
             notes=data.get("notes"),
+            status=ResearchStatus(data.get("status", "completed")),
         )
+
+    @property
+    def is_resumable(self) -> bool:
+        """Check if the session can be resumed (in_progress or interrupted)."""
+        return self.status in (ResearchStatus.IN_PROGRESS, ResearchStatus.INTERRUPTED)
 
     def short_description(self) -> str:
         """Return a short description for listing."""
@@ -339,6 +368,11 @@ class SessionStorage:
         title: str | None = None,
         tags: list[str] | None = None,
         notes: str | None = None,
+        status: ResearchStatus | None = None,
+        summary: str | None = None,
+        report_text: str | None = None,
+        duration_seconds: float | None = None,
+        total_tokens: int | None = None,
     ) -> ResearchSession | None:
         """Update session metadata (async)."""
         session = await self.get_session_async(interaction_id)
@@ -351,6 +385,16 @@ class SessionStorage:
             session.tags = tags
         if notes is not None:
             session.notes = notes
+        if status is not None:
+            session.status = status
+        if summary is not None:
+            session.summary = summary
+        if report_text is not None:
+            session.report_text = report_text
+        if duration_seconds is not None:
+            session.duration_seconds = duration_seconds
+        if total_tokens is not None:
+            session.total_tokens = total_tokens
 
         await self.save_session_async(session)
         return session
@@ -443,11 +487,24 @@ class SessionStorage:
         title: str | None = None,
         tags: list[str] | None = None,
         notes: str | None = None,
+        status: ResearchStatus | None = None,
+        summary: str | None = None,
+        report_text: str | None = None,
+        duration_seconds: float | None = None,
+        total_tokens: int | None = None,
     ) -> ResearchSession | None:
         """Update session metadata (sync wrapper)."""
         return self._run_async(
             self.update_session_async(
-                interaction_id, title=title, tags=tags, notes=notes
+                interaction_id,
+                title=title,
+                tags=tags,
+                notes=notes,
+                status=status,
+                summary=summary,
+                report_text=report_text,
+                duration_seconds=duration_seconds,
+                total_tokens=total_tokens,
             )
         )
 
@@ -488,10 +545,11 @@ def save_research_session(
     summary: str | None = None,
     report_text: str | None = None,
     format_instructions: str | None = None,
-    agent_name: str | None = None,
+    agent_name: DeepResearchAgent | None = None,
     duration_seconds: float | None = None,
     total_tokens: int | None = None,
     tags: list[str] | None = None,
+    status: ResearchStatus = ResearchStatus.COMPLETED,
 ) -> ResearchSession:
     """
     Save a research session for later follow-up.
@@ -507,6 +565,7 @@ def save_research_session(
         duration_seconds: Optional research duration
         total_tokens: Optional total tokens used
         tags: Optional tags for filtering
+        status: Session status (default: COMPLETED)
 
     Returns:
         The saved ResearchSession
@@ -523,9 +582,64 @@ def save_research_session(
         duration_seconds=duration_seconds,
         total_tokens=total_tokens,
         tags=tags or [],
+        status=status,
     )
     get_storage().save_session(session)
     return session
+
+
+def update_research_session(
+    interaction_id: str,
+    *,
+    title: str | None = None,
+    summary: str | None = None,
+    report_text: str | None = None,
+    duration_seconds: float | None = None,
+    total_tokens: int | None = None,
+    tags: list[str] | None = None,
+    notes: str | None = None,
+    status: ResearchStatus | None = None,
+) -> ResearchSession | None:
+    """
+    Update an existing research session.
+
+    Args:
+        interaction_id: The Gemini interaction ID
+        title: Optional new title
+        summary: Optional new summary
+        report_text: Optional new report text
+        duration_seconds: Optional research duration
+        total_tokens: Optional total tokens used
+        tags: Optional new tags
+        notes: Optional user notes
+        status: Optional new status
+
+    Returns:
+        The updated ResearchSession or None if not found
+    """
+    return get_storage().update_session(
+        interaction_id,
+        title=title,
+        summary=summary,
+        report_text=report_text,
+        duration_seconds=duration_seconds,
+        total_tokens=total_tokens,
+        tags=tags,
+        notes=notes,
+        status=status,
+    )
+
+
+def list_resumable_sessions(limit: int = 10) -> list[ResearchSession]:
+    """
+    List sessions that can be resumed (in_progress or interrupted).
+
+    Returns:
+        List of resumable sessions, sorted by created_at (newest first)
+    """
+    sessions = get_storage().list_sessions(include_expired=False, limit=None)
+    resumable = [s for s in sessions if s.is_resumable]
+    return resumable[:limit]
 
 
 def get_research_session(interaction_id: str) -> ResearchSession | None:

@@ -16,6 +16,7 @@ Architecture:
 # as it breaks type resolution for Annotated parameters in tool functions
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
@@ -49,13 +50,17 @@ from gemini_research_mcp.export import (
 )
 from gemini_research_mcp.quick import (
     generate_session_metadata,
+    generate_title_from_query,
     quick_research,
     semantic_match_session,
 )
 from gemini_research_mcp.storage import (
+    ResearchStatus,
     get_research_session,
     list_research_sessions,
+    list_resumable_sessions,
     save_research_session,
+    update_research_session,
 )
 from gemini_research_mcp.types import DeepResearchError, DeepResearchResult
 
@@ -132,13 +137,32 @@ def get_task_support() -> TaskSupport:
 
 @asynccontextmanager
 async def lifespan(app: FastMCP) -> AsyncIterator[None]:
-    """Initialize task support during server startup."""
+    """Initialize task support and check for resumable sessions on startup."""
     global _task_support
 
     # Enable experimental task support on the low-level server
     _task_support = app._mcp_server.experimental.enable_tasks()
 
     logger.info("✅ Experimental task support enabled")
+
+    # Check for resumable sessions from previous runs
+    try:
+        resumable = list_resumable_sessions(limit=10)
+        if resumable:
+            logger.info("=" * 60)
+            logger.info("🔄 RESUMABLE SESSIONS FOUND (%d)", len(resumable))
+            for session in resumable:
+                status_emoji = "⏳" if session.status == ResearchStatus.IN_PROGRESS else "⚠️"
+                logger.info(
+                    "   %s [%s] %s",
+                    status_emoji,
+                    session.interaction_id[:12],
+                    session.query[:60],
+                )
+            logger.info("   💡 Use resume_research tool to recover these sessions")
+            logger.info("=" * 60)
+    except Exception as e:
+        logger.warning("Failed to check for resumable sessions: %s", e)
 
     async with _task_support.run():
         yield
@@ -163,7 +187,7 @@ Use for: research reports, competitive analysis, "compare", "analyze", "investig
 - Automatically asks clarifying questions for vague queries
 - Runs as background task with progress updates
 - Returns comprehensive report with citations
-- Sessions are saved with AI-generated summaries for later follow-up
+- Sessions are saved at START for resume support if interrupted
 
 ## Follow-up (research_followup)
 Continue conversation with any previous deep research session.
@@ -172,9 +196,17 @@ Use for: "elaborate", "clarify", "summarize", follow-up questions.
 - No need to track interaction_ids manually
 - Sessions last 55 days (paid tier)
 
+## Resume Research (resume_research)
+Recover interrupted or in-progress research sessions.
+Use for: VS Code disconnections, network issues, checking ongoing research.
+- Lists sessions that can be resumed (in_progress/interrupted)
+- Checks Gemini API for completion status
+- Recovers completed reports that were interrupted during delivery
+
 ## List Sessions (list_research_sessions_tool)
 Returns JSON list of previous research sessions with queries and summaries.
 Use to answer "what research did I do about X?" questions.
+Shows session status (completed, in_progress, failed, interrupted).
 
 ## Export (export_research_session)
 Export completed research to Markdown, JSON, or Word (DOCX) format.
@@ -183,6 +215,7 @@ Use for: sharing reports, archiving research, creating deliverables.
 **Workflow:**
 - Simple questions → research_web
 - Complex questions → research_deep
+- VS Code disconnected during research? → resume_research
 - "What did I research about X?" → list_research_sessions_tool
 - Continue old research → research_followup (auto-matches session)
 - Export for sharing → export_research_session
@@ -519,6 +552,8 @@ async def research_deep(
         thought_count = 0
         action_count = 0
         interaction_id: str | None = None
+        session_saved = False  # Track if we saved session at start
+        initial_title: str | None = None  # Generated title for the session
 
         # Consume the stream to get interaction_id and track progress
         async for event in deep_research_stream(
@@ -529,6 +564,28 @@ async def research_deep(
             if event.interaction_id:
                 interaction_id = event.interaction_id
                 logger.info("   📋 interaction_id: %s", interaction_id)
+
+                # === RESUME SUPPORT: Save session at START with in_progress status ===
+                if not session_saved:
+                    try:
+                        # Generate a proper title from the query (fast, ~$0.0001)
+                        initial_title = await generate_title_from_query(effective_query)
+                        if not initial_title:
+                            initial_title = effective_query[:60]  # Fallback
+                        logger.info("   📝 Generated title: %s", initial_title)
+
+                        save_research_session(
+                            interaction_id=interaction_id,
+                            query=effective_query,
+                            title=initial_title,
+                            format_instructions=format_instructions,
+                            agent_name=get_deep_research_agent(),
+                            status=ResearchStatus.IN_PROGRESS,
+                        )
+                        session_saved = True
+                        logger.info("   💾 Session saved (in_progress) for resume support")
+                    except Exception as save_error:
+                        logger.warning("⚠️ Failed to save session at start: %s", save_error)
 
             # Track events for progress
             if event.event_type == "thought":
@@ -552,6 +609,13 @@ async def research_deep(
                     await ctx.info("🚀 Research agent autonomous investigation started")
             elif event.event_type == "error":
                 logger.error("   Stream error: %s", event.content)
+                # Mark session as failed if we have interaction_id
+                if interaction_id and session_saved:
+                    with contextlib.suppress(Exception):
+                        update_research_session(
+                            interaction_id,
+                            status=ResearchStatus.FAILED,
+                        )
 
         if not interaction_id:
             raise ValueError("No interaction_id received from stream")
@@ -591,22 +655,21 @@ async def research_deep(
                     query=effective_query,
                 )
 
-                # Save session for later follow-up (guard against filesystem errors)
+                # Update session with completion data (session saved at start)
                 try:
-                    save_research_session(
-                        interaction_id=interaction_id,
-                        query=effective_query,
+                    update_research_session(
+                        interaction_id,
                         title=metadata.title or None,
                         summary=metadata.summary or None,
                         report_text=result.text,
-                        format_instructions=format_instructions,
-                        agent_name=get_deep_research_agent(),
                         duration_seconds=elapsed,
                         total_tokens=total_tokens,
+                        status=ResearchStatus.COMPLETED,
                     )
+                    logger.info("   💾 Session updated (completed)")
                 except Exception as save_error:
                     logger.warning(
-                        "⚠️ Failed to save session (research succeeded): %s",
+                        "⚠️ Failed to update session (research succeeded): %s",
                         save_error,
                     )
 
@@ -614,6 +677,14 @@ async def research_deep(
 
             elif raw_status in ("failed", "cancelled"):
                 logger.error("   ❌ Research %s after %s", raw_status, _format_duration(elapsed))
+                # Mark session as failed
+                if session_saved:
+                    with contextlib.suppress(Exception):
+                        update_research_session(
+                            interaction_id,
+                            status=ResearchStatus.FAILED,
+                            duration_seconds=elapsed,
+                        )
                 raise DeepResearchError(
                     code=f"RESEARCH_{raw_status.upper()}",
                     message=f"Research {raw_status} after {_format_duration(elapsed)}",
@@ -776,6 +847,7 @@ async def list_research_sessions_tool(
             "interaction_id": session.interaction_id,
             "query": session.query,
             "summary": session.summary,
+            "status": session.status.value,
             "created_at": session.created_at_iso,
             "expires_in": session.time_remaining_human,
         }
@@ -788,14 +860,183 @@ async def list_research_sessions_tool(
 
         session_list.append(session_data)
 
+    # Count resumable sessions
+    resumable_count = sum(1 for s in sessions if s.is_resumable)
+    hint = "Use research_followup with your question - auto-matches session."
+    if resumable_count > 0:
+        hint = f"{resumable_count} session(s) can be resumed with resume_research tool."
+
     return json.dumps(
         {
             "sessions": session_list,
             "count": len(session_list),
-            "hint": "Use research_followup with your question - auto-matches session.",
+            "resumable_count": resumable_count,
+            "hint": hint,
         },
         indent=2,
     )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def resume_research(
+    interaction_id: Annotated[
+        str | None,
+        "Optional: specific interaction_id to resume. If not provided, shows resumable sessions.",
+    ] = None,
+    ctx: Context[Any, Any, Any] | None = None,
+) -> str:
+    """
+    Resume interrupted or in-progress research sessions.
+
+    If VS Code disconnected or the research was interrupted, this tool can:
+    1. List all resumable sessions (in_progress or interrupted)
+    2. Check the status of a specific session and return results if completed
+
+    Sessions are saved at the START of research, so even if VS Code loses connection,
+    the research continues on Gemini's servers and can be retrieved later.
+
+    Args:
+        interaction_id: Optional specific session to resume/check
+
+    Returns:
+        Status of resumable sessions or completed research results
+    """
+    logger.info("🔄 resume_research: id=%s", interaction_id)
+
+    try:
+        # If no interaction_id, list all resumable sessions
+        if not interaction_id:
+            resumable = list_resumable_sessions(limit=10)
+            if not resumable:
+                return json.dumps({
+                    "status": "no_resumable_sessions",
+                    "message": "No interrupted or in-progress research sessions found.",
+                    "hint": "All sessions are either completed or expired.",
+                })
+
+            session_list = []
+            for s in resumable:
+                session_list.append({
+                    "interaction_id": s.interaction_id,
+                    "query": s.query[:100],
+                    "status": s.status.value,
+                    "created_at": s.created_at_iso,
+                    "expires_in": s.time_remaining_human,
+                })
+
+            return json.dumps({
+                "status": "resumable_sessions_found",
+                "count": len(session_list),
+                "sessions": session_list,
+                "hint": "Call resume_research with a specific interaction_id to check/resume.",
+            }, indent=2)
+
+        # Check specific session status
+        session = get_research_session(interaction_id)
+        if not session:
+            return json.dumps({
+                "status": "not_found",
+                "message": f"Session not found: {interaction_id}",
+            })
+
+        # If already completed, return the report
+        if session.status == ResearchStatus.COMPLETED:
+            return json.dumps({
+                "status": "already_completed",
+                "message": "This research session is already completed.",
+                "title": session.title,
+                "summary": session.summary,
+                "hint": "Use research_followup or export_research_session.",
+            })
+
+        # Check with Gemini API for current status
+        if ctx:
+            await ctx.info(f"Checking status of research: {session.query[:50]}...")
+
+        try:
+            result = await get_research_status(interaction_id)
+            raw_status = "unknown"
+            if result.raw_interaction:
+                raw_status = getattr(result.raw_interaction, "status", "unknown")
+
+            if raw_status == "completed":
+                # Research completed on Gemini's side - update our records
+                result = await process_citations(result, resolve_urls=True)
+
+                total_tokens = None
+                if result.usage and result.usage.total_tokens:
+                    total_tokens = result.usage.total_tokens
+
+                # Generate metadata
+                metadata = await generate_session_metadata(
+                    text=result.text or "",
+                    query=session.query,
+                )
+
+                # Update session
+                update_research_session(
+                    interaction_id,
+                    title=metadata.title or None,
+                    summary=metadata.summary or None,
+                    report_text=result.text,
+                    total_tokens=total_tokens,
+                    status=ResearchStatus.COMPLETED,
+                )
+
+                logger.info("   ✅ Research recovered and saved!")
+
+                # Return the report
+                lines = ["## Research Report (Resumed)"]
+                if result.text:
+                    lines.append(result.text)
+                else:
+                    lines.append("*No report text available.*")
+
+                lines.extend([
+                    "",
+                    "---",
+                    f"*Session recovered. Interaction ID: `{interaction_id}`*",
+                ])
+
+                return "\n".join(lines)
+
+            elif raw_status in ("failed", "cancelled"):
+                update_research_session(
+                    interaction_id,
+                    status=ResearchStatus.FAILED,
+                )
+                return json.dumps({
+                    "status": raw_status,
+                    "message": f"Research {raw_status} on Gemini's servers.",
+                    "query": session.query,
+                })
+
+            else:
+                # Still in progress
+                return json.dumps({
+                    "status": "still_in_progress",
+                    "gemini_status": raw_status,
+                    "message": "Research is still running on Gemini's servers.",
+                    "query": session.query[:100],
+                    "hint": "Try again in a few minutes.",
+                })
+
+        except Exception as api_error:
+            logger.warning("Failed to check Gemini status: %s", api_error)
+            # Mark as interrupted if we can't reach Gemini
+            update_research_session(
+                interaction_id,
+                status=ResearchStatus.INTERRUPTED,
+            )
+            return json.dumps({
+                "status": "api_error",
+                "message": f"Could not check status: {api_error}",
+                "hint": "The research may still be running. Try again later.",
+            })
+
+    except Exception as e:
+        logger.exception("resume_research failed: %s", e)
+        return json.dumps({"error": f"Resume failed: {e}"})
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
