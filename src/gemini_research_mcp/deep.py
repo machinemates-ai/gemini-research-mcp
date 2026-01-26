@@ -80,9 +80,11 @@ def _extract_text_from_interaction(interaction: Any) -> str | None:
     if outputs:
         last_output = outputs[-1]
         if hasattr(last_output, "text"):
-            return last_output.text
+            text = last_output.text
+            return str(text) if text is not None else None
         if hasattr(last_output, "content"):
-            return last_output.content
+            content = last_output.content
+            return str(content) if content is not None else None
     return None
 
 
@@ -279,11 +281,11 @@ async def deep_research_stream(
         await asyncio.sleep(retry_delay)
 
         try:
-            resume_stream = await client.aio.interactions.get(
-                id=interaction_id,
-                stream=True,
-                last_event_id=last_event_id,
-            )
+            # last_event_id can be None on first reconnect
+            get_kwargs: dict[str, Any] = {"id": interaction_id, "stream": True}
+            if last_event_id is not None:
+                get_kwargs["last_event_id"] = last_event_id
+            resume_stream = await client.aio.interactions.get(**get_kwargs)
             logger.info("⏱️ [%.1fs] RECONNECTED", time.time() - stream_start_time)
             async for progress in process_stream(resume_stream):
                 yield progress
@@ -352,9 +354,9 @@ async def deep_research(
         agent_name=agent_name,
     ):
         if on_progress:
-            result = on_progress(progress)
-            if inspect.isawaitable(result):
-                await result
+            cb_result = on_progress(progress)
+            if inspect.isawaitable(cb_result):
+                await cb_result
 
         if progress.event_type == "start":
             interaction_id = progress.interaction_id
@@ -391,9 +393,9 @@ async def deep_research(
                         content=f"Waiting... ({status}, {elapsed:.0f}s)",
                         interaction_id=interaction_id,
                     )
-                    result = on_progress(prog)
-                    if inspect.isawaitable(result):
-                        await result
+                    poll_cb_result = on_progress(prog)
+                    if inspect.isawaitable(poll_cb_result):
+                        await poll_cb_result
 
                 if status == "completed":
                     raw_interaction = final_interaction
@@ -446,74 +448,14 @@ async def deep_research(
     return result
 
 
-async def start_research_async(
-    query: str,
-    *,
-    format_instructions: str | None = None,
-    file_search_store_names: list[str] | None = None,
-    agent_name: str | None = None,
-) -> str:
-    """
-    Start a Deep Research task without waiting for completion.
-
-    Use this for long-running research tasks where you want to:
-    - Start research and do other work while it runs
-    - Poll for status later with get_research_status()
-    - Not block the MCP client
-
-    Research typically takes 3-20 minutes to complete.
-
-    Args:
-        query: Research question or topic
-        format_instructions: Optional formatting instructions for output
-        file_search_store_names: Optional list of file search store names for RAG
-        agent_name: Deep Research agent to use
-
-    Returns:
-        interaction_id: Use this to check status with get_research_status()
-    """
-    client = genai.Client(api_key=get_api_key())
-    agent_name = agent_name or get_deep_research_agent()
-
-    prompt = f"{query}\n\n{format_instructions}" if format_instructions else query
-
-    tools = None
-    if file_search_store_names:
-        tools = [
-            {
-                "type": "file_search",
-                "file_search_store_names": file_search_store_names,
-            }
-        ]
-
-    create_kwargs: dict[str, Any] = {
-        "input": prompt,
-        "agent": agent_name,
-        "background": True,  # Run in background mode
-    }
-    if tools:
-        create_kwargs["tools"] = tools
-
-    logger.info("🚀 Starting async deep research: %s", query[:100])
-    interaction = await client.aio.interactions.create(**create_kwargs)
-    logger.info("   📋 Interaction ID: %s", interaction.id)
-
-    return interaction.id
-
-
 async def get_research_status(interaction_id: str) -> DeepResearchResult:
     """
     Get the current status of a Deep Research task.
 
-    Use this to check on research started with start_research_async().
-
-    The returned DeepResearchResult includes:
-    - raw_interaction.status: "in_progress", "completed", "failed", "cancelled"
-    - text: The report text (only populated when completed)
-    - usage: Token usage/cost info (when available)
+    Internal helper used by research_deep to poll for completion.
 
     Args:
-        interaction_id: The interaction ID from start_research_async()
+        interaction_id: The interaction ID from a research task
 
     Returns:
         DeepResearchResult with current status and any available outputs
