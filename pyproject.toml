@@ -1,0 +1,83 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gemini-research-mcp"
+version = "0.1.0"
+description = "MCP server for AI-powered research using Gemini: quick grounded search + Deep Research Agent"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+authors = [
+    { name = "Guillaume Fortaine", email = "contact@fortaine.io" }
+]
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "gemini",
+    "research",
+    "ai",
+    "deep-research",
+    "grounding",
+    "google-search",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "google-genai>=1.57.0",
+    "fastmcp[tasks]>=2.5.1",
+    "httpx>=0.27.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/fortaine/gemini-research-mcp"
+Documentation = "https://github.com/fortaine/gemini-research-mcp#readme"
+Repository = "https://github.com/fortaine/gemini-research-mcp"
+Issues = "https://github.com/fortaine/gemini-research-mcp/issues"
+
+[project.scripts]
+gemini-research-mcp = "gemini_research_mcp.server:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.4.0",
+    "mypy>=1.10.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gemini_research_mcp"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-m 'not e2e'"
+markers = [
+    "e2e: end-to-end tests that call external APIs",
+]
+
+[tool.uv.sources]
+# Use FastMCP main branch locally to pick up the latest MCP Tasks support.
+# Packaging metadata (project.dependencies) still targets the latest released FastMCP.
+fastmcp = { git = "https://github.com/jlowin/fastmcp", rev = "main" }
