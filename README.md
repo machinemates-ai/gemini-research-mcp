@@ -40,14 +40,6 @@ pip install gemini-research-mcp
 uv add gemini-research-mcp
 ```
 
-From source:
-
-```bash
-git clone https://github.com/fortaine/gemini-research-mcp
-cd gemini-research-mcp
-uv sync
-```
-
 ## Configuration
 
 | Variable | Required | Default | Description |
