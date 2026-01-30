@@ -32,6 +32,7 @@ from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import (
     BlobResourceContents,
     EmbeddedResource,
+    Icon,
     TextContent,
     TextResourceContents,
     ToolAnnotations,
@@ -69,6 +70,18 @@ logger = logging.getLogger(LOGGER_NAME)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+
+# Gemini sparkle icon as SVG data URI (official star/sparkle design with gradient)
+GEMINI_ICON_DATA_URI = (
+    "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZp"
+    "ZXdCb3g9IjAgMCAyOCAyOCI+PGRlZnM+PGxpbmVhckdyYWRpZW50IGlkPSJnIiB4MT0iMCUiIHkxPSIw"
+    "JSIgeDI9IjEwMCUiIHkyPSIxMDAlIj48c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjNDE4N0Y0"
+    "Ii8+PHN0b3Agb2Zmc2V0PSI1MCUiIHN0b3AtY29sb3I9IiM5QjcyRkYiLz48c3RvcCBvZmZzZXQ9IjEw"
+    "MCUiIHN0b3AtY29sb3I9IiNENDRGQjciLz48L2xpbmVhckdyYWRpZW50PjwvZGVmcz48cGF0aCBmaWxs"
+    "PSJ1cmwoI2cpIiBkPSJNMTQgMEMxNCA5LjM3MyA0LjM3MyAxNCAwIDE0YzQuMzczIDAgMTQgNC42Mjcg"
+    "MTQgMTQgMC05LjM3MyA5LjYyNy0xNCAxNC0xNC00LjM3MyAwLTE0LTQuNjI3LTE0LTE0eiIvPjwvc3Zn"
+    "Pg=="
 )
 
 
@@ -174,6 +187,7 @@ async def lifespan(app: FastMCP) -> AsyncIterator[None]:
 
 mcp = FastMCP(
     name="Gemini Research",
+    icons=[Icon(src=GEMINI_ICON_DATA_URI, mimeType="image/svg+xml", sizes=["any"])],
     instructions="""
 Gemini Research MCP Server - AI-powered research toolkit
 
