@@ -25,17 +25,19 @@ class TestListFormatTemplates:
 
     @pytest.mark.asyncio
     async def test_list_format_templates_returns_json(self):
-        """list_format_templates should return valid JSON."""
+        """list_format_templates should return valid JSON wrapper."""
         import json
 
         from gemini_research_mcp.server import list_format_templates
 
         result = await list_format_templates()
 
-        # Should be parseable JSON
+        # Should be parseable JSON with wrapper
         data = json.loads(result)
-        assert isinstance(data, list)
-        assert len(data) == 10  # 10 templates
+        assert isinstance(data, dict)
+        assert "templates" in data
+        assert "count" in data
+        assert len(data["templates"]) == 10  # 10 templates
 
     @pytest.mark.asyncio
     async def test_list_format_templates_structure(self):
@@ -47,7 +49,7 @@ class TestListFormatTemplates:
         result = await list_format_templates()
         data = json.loads(result)
 
-        for template in data:
+        for template in data["templates"]:
             assert "name" in template
             assert "key" in template
             assert "description" in template
@@ -64,8 +66,8 @@ class TestListFormatTemplates:
         result = await list_format_templates(category="business")
         data = json.loads(result)
 
-        assert len(data) == 3  # 3 business templates
-        for template in data:
+        assert data["count"] == 3  # 3 business templates
+        for template in data["templates"]:
             assert template["category"] == "business"
 
 
@@ -220,6 +222,65 @@ class TestCritiqueResultType:
 
         result = CritiqueResult(rating="UNKNOWN")
         assert result.needs_refinement is True
+
+
+class TestGroundedCritiqueResultType:
+    """Unit tests for GroundedCritiqueResult type (no API needed)."""
+
+    def test_is_verified_for_verified(self):
+        """is_verified should be True for VERIFIED rating."""
+        from gemini_research_mcp.types import GroundedCritiqueResult
+
+        result = GroundedCritiqueResult(fact_check_rating="VERIFIED")
+        assert result.is_verified is True
+
+    def test_is_verified_for_partially_verified(self):
+        """is_verified should be True for PARTIALLY_VERIFIED rating."""
+        from gemini_research_mcp.types import GroundedCritiqueResult
+
+        result = GroundedCritiqueResult(fact_check_rating="PARTIALLY_VERIFIED")
+        assert result.is_verified is True
+
+    def test_is_verified_for_disputed(self):
+        """is_verified should be False for DISPUTED rating."""
+        from gemini_research_mcp.types import GroundedCritiqueResult
+
+        result = GroundedCritiqueResult(fact_check_rating="DISPUTED")
+        assert result.is_verified is False
+
+    def test_is_verified_for_insufficient_data(self):
+        """is_verified should be False for INSUFFICIENT_DATA rating."""
+        from gemini_research_mcp.types import GroundedCritiqueResult
+
+        result = GroundedCritiqueResult(fact_check_rating="INSUFFICIENT_DATA")
+        assert result.is_verified is False
+
+    def test_to_dict(self):
+        """to_dict should serialize all fields."""
+        from gemini_research_mcp.types import GroundedCritiqueResult
+
+        result = GroundedCritiqueResult(
+            fact_check_rating="VERIFIED",
+            claims_verified=["Claim A is correct", "Claim B checks out"],
+            claims_disputed=["Claim C is outdated"],
+            sources=["https://example.com/source1"],
+        )
+        d = result.to_dict()
+
+        assert d["fact_check_rating"] == "VERIFIED"
+        assert len(d["claims_verified"]) == 2
+        assert len(d["claims_disputed"]) == 1
+        assert len(d["sources"]) == 1
+
+    def test_default_empty_lists(self):
+        """Default values should be empty lists."""
+        from gemini_research_mcp.types import GroundedCritiqueResult
+
+        result = GroundedCritiqueResult(fact_check_rating="VERIFIED")
+        assert result.claims_verified == []
+        assert result.claims_disputed == []
+        assert result.sources == []
+        assert result.raw_response is None
 
 
 class TestAutoRefine:

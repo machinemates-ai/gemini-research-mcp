@@ -246,6 +246,35 @@ class CritiqueResult:
         }
 
 
+@dataclass(slots=True)
+class GroundedCritiqueResult:
+    """Result from grounded_critique() - fact-checking via Google Search.
+
+    Uses Google Search Grounding (same as ADK's google_search tool) to
+    verify claims in research reports against current web sources.
+    """
+
+    fact_check_rating: str  # "VERIFIED", "PARTIALLY_VERIFIED", "DISPUTED", "INSUFFICIENT_DATA"
+    claims_verified: list[str] = field(default_factory=list)
+    claims_disputed: list[str] = field(default_factory=list)
+    sources: list[str] = field(default_factory=list)  # URLs used for verification
+    raw_response: str | None = None
+
+    @property
+    def is_verified(self) -> bool:
+        """Whether the research passed fact-checking."""
+        return self.fact_check_rating in ("VERIFIED", "PARTIALLY_VERIFIED")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "fact_check_rating": self.fact_check_rating,
+            "claims_verified": self.claims_verified,
+            "claims_disputed": self.claims_disputed,
+            "sources": self.sources,
+        }
+
+
 # =============================================================================
 # File Search Store (RAG)
 # TODO: These types are defined for future use with file search capabilities

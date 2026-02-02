@@ -671,7 +671,7 @@ class TestExportCache:
         self, sample_session: ResearchSession
     ) -> None:
         """Test the resource function returns proper MCP content types."""
-        from mcp.types import BlobResourceContents, TextResourceContents
+        from mcp.types import TextResourceContents
 
         from gemini_research_mcp.server import (
             _cache_export,

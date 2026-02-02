@@ -43,6 +43,7 @@ from gemini_research_mcp.types import (
     DeepResearchProgress,
     DeepResearchResult,
     DeepResearchUsage,
+    GroundedCritiqueResult,
 )
 
 logger = logging.getLogger(LOGGER_NAME)
@@ -144,6 +145,154 @@ async def critique_research(
             gaps=[],
             follow_up_questions=[],
             raw_response=f"Critique failed: {e}",
+        )
+
+
+async def grounded_critique(
+    query: str,
+    report: str,
+    *,
+    model: str = "gemini-3-flash-preview",
+) -> GroundedCritiqueResult:
+    """
+    Fact-check research using Google Search grounding.
+
+    Unlike critique_research() which evaluates quality/gaps,
+    this function uses real-time web search to VERIFY claims
+    in the report against current sources.
+
+    Inspired by ADK Deep Search's google_search tool usage for validation.
+
+    Args:
+        query: Original research query (for context)
+        report: Generated research report to fact-check
+        model: Model to use (Flash recommended for speed)
+
+    Returns:
+        GroundedCritiqueResult with:
+        - fact_check_rating: "VERIFIED", "PARTIALLY_VERIFIED", "DISPUTED", or "INSUFFICIENT_DATA"
+        - claims_verified: List of verified claims
+        - claims_disputed: List of disputed/unverified claims
+        - sources: URLs used for verification
+        - raw_response: Full grounded response
+    """
+    from google.genai.types import GenerateContentConfig, GoogleSearch, Tool
+
+    # Truncate report to avoid token limits
+    report_excerpt = report[:30000] if len(report) > 30000 else report
+
+    # Best Practice: Explicit system instruction about search access (per Google docs)
+    prompt = f"""You are a rigorous fact-checker with access to Google Search. Always verify dates, names, and specific claims before responding.
+
+ORIGINAL QUERY: {query}
+
+REPORT TO FACT-CHECK:
+{report_excerpt}
+
+INSTRUCTIONS:
+1. Identify 3-5 key factual claims in the report (focus on dates, statistics, names)
+2. Use Google Search to verify each claim against current authoritative sources
+3. Categorize each claim as VERIFIED (found matching sources) or DISPUTED (conflicts or no sources)
+4. Rate overall accuracy based on verification results
+
+OUTPUT FORMAT:
+CLAIMS_VERIFIED:
+- [factual claim that was confirmed by web search]
+- [another verified claim]
+
+CLAIMS_DISPUTED:
+- [claim that couldn't be verified or conflicts with current sources]
+- [outdated information]
+
+RATING: VERIFIED | PARTIALLY_VERIFIED | DISPUTED | INSUFFICIENT_DATA
+"""
+
+    client = _get_healthy_client()
+
+    try:
+        # Best Practice: temperature=1.0 for optimal grounding integration (Google docs)
+        config = GenerateContentConfig(
+            tools=[Tool(google_search=GoogleSearch())],
+            temperature=1.0,  # Recommended for grounding per Google 2025 docs
+        )
+
+        response = await client.aio.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=config,
+        )
+        _record_client_success()
+
+        response_text = response.text or ""
+
+        # Parse rating
+        fact_check_rating = "INSUFFICIENT_DATA"
+        for rating_val in ["VERIFIED", "PARTIALLY_VERIFIED", "DISPUTED"]:
+            if f"RATING: {rating_val}" in response_text.upper():
+                fact_check_rating = rating_val
+                break
+
+        # Parse claims_verified
+        claims_verified: list[str] = []
+        claims_disputed: list[str] = []
+        lines = response_text.split("\n")
+
+        in_verified = False
+        in_disputed = False
+        for line in lines:
+            line = line.strip()
+            if "CLAIMS_VERIFIED:" in line.upper() or "CLAIMS VERIFIED:" in line.upper():
+                in_verified, in_disputed = True, False
+                continue
+            if "CLAIMS_DISPUTED:" in line.upper() or "CLAIMS DISPUTED:" in line.upper():
+                in_verified, in_disputed = False, True
+                continue
+            if "RATING:" in line.upper():
+                in_verified, in_disputed = False, False
+                continue
+
+            if line.startswith("-"):
+                claim = line[1:].strip()
+                if claim:
+                    if in_verified:
+                        claims_verified.append(claim)
+                    elif in_disputed:
+                        claims_disputed.append(claim)
+
+        # Extract sources and search queries from grounding metadata
+        # Best Practice: Include webSearchQueries for debugging (Google docs)
+        sources: list[str] = []
+        search_queries_used: list[str] = []
+        if response.candidates and response.candidates[0].grounding_metadata:
+            gm = response.candidates[0].grounding_metadata
+            if gm.web_search_queries:
+                search_queries_used = list(gm.web_search_queries)
+            if gm.grounding_chunks:
+                for chunk in gm.grounding_chunks:
+                    if hasattr(chunk, "web") and chunk.web and chunk.web.uri:
+                        sources.append(chunk.web.uri)
+
+        logger.info(
+            "🔍 Grounded critique: rating=%s, verified=%d, disputed=%d, sources=%d, queries=%d",
+            fact_check_rating, len(claims_verified), len(claims_disputed), len(sources), len(search_queries_used)
+        )
+
+        return GroundedCritiqueResult(
+            fact_check_rating=fact_check_rating,
+            claims_verified=claims_verified,
+            claims_disputed=claims_disputed,
+            sources=sources,
+            raw_response=response_text,
+        )
+
+    except Exception as e:
+        logger.warning("Grounded critique failed: %s", e)
+        return GroundedCritiqueResult(
+            fact_check_rating="INSUFFICIENT_DATA",
+            claims_verified=[],
+            claims_disputed=[],
+            sources=[],
+            raw_response=f"Grounded critique failed: {e}",
         )
 
 
@@ -661,6 +810,7 @@ async def deep_research(
     resolve_citations: bool = True,
     timeout: float = DEFAULT_TIMEOUT,
     auto_refine: bool = False,
+    grounded: bool = False,
 ) -> DeepResearchResult:
     """
     Comprehensive multi-step research using Gemini Deep Research Agent.
@@ -681,6 +831,8 @@ async def deep_research(
         timeout: Maximum wait time in seconds
         auto_refine: If True, run a critique cycle and append findings.
                      Inspired by ADK Deep Search's iterative refinement loop.
+        grounded: If True, fact-check the report using Google Search Grounding
+                  and append verification results. Uses same API as ADK's google_search.
 
     Returns:
         DeepResearchResult with collected text, thinking summaries, usage, and citations
@@ -853,6 +1005,61 @@ async def deep_research(
                 logger.info("✅ AUTO_REFINE: Appended %d refinements", len(refinements))
         else:
             logger.info("✅ AUTO_REFINE: Report passed quality check, no refinement needed")
+
+    # =========================================================================
+    # Grounded fact-check: Verify claims using Google Search Grounding
+    # Uses same underlying API as ADK's google_search tool
+    # =========================================================================
+    if grounded and result.text:
+        logger.info("🔍 GROUNDED: Running fact-check with Google Search...")
+
+        if on_progress:
+            prog = DeepResearchProgress(
+                event_type="status",
+                content="Running grounded fact-check...",
+                interaction_id=result.interaction_id,
+            )
+            cb = on_progress(prog)
+            if inspect.isawaitable(cb):
+                await cb
+
+        try:
+            critique_result = await grounded_critique(query, result.text)
+
+            # Append fact-check results to the report
+            fact_check_section = "\n\n---\n\n## Fact-Check (Grounded)\n\n"
+            fact_check_section += f"**Rating:** {critique_result.fact_check_rating}\n\n"
+
+            if critique_result.claims_verified:
+                fact_check_section += "### ✅ Verified Claims\n"
+                for claim in critique_result.claims_verified:
+                    fact_check_section += f"- {claim}\n"
+                fact_check_section += "\n"
+
+            if critique_result.claims_disputed:
+                fact_check_section += "### ⚠️ Disputed Claims\n"
+                for claim in critique_result.claims_disputed:
+                    fact_check_section += f"- {claim}\n"
+                fact_check_section += "\n"
+
+            if critique_result.sources:
+                fact_check_section += "### 📚 Verification Sources\n"
+                for source in critique_result.sources[:10]:  # Limit to 10
+                    fact_check_section += f"- {source}\n"
+
+            result.text = result.text + fact_check_section
+            result.thinking_summaries.append(
+                f"Grounded fact-check: {critique_result.fact_check_rating} "
+                f"({len(critique_result.claims_verified)} verified, "
+                f"{len(critique_result.claims_disputed)} disputed)"
+            )
+            logger.info(
+                "✅ GROUNDED: Fact-check complete - %s",
+                critique_result.fact_check_rating,
+            )
+        except Exception as e:
+            logger.warning("⚠️ GROUNDED: Fact-check failed: %s", e)
+            result.thinking_summaries.append(f"Grounded fact-check failed: {e}")
 
     return result
 
