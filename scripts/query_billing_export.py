@@ -4,9 +4,9 @@ Query BigQuery Billing Export for Gemini API usage breakdown.
 Shows input vs output tokens and actual costs.
 """
 
-from google.cloud import bigquery
-from datetime import datetime, timedelta
 import sys
+
+from google.cloud import bigquery
 
 PROJECT_ID = "gen-lang-client-0202182328"
 DATASET_ID = "billing_export"
@@ -38,7 +38,7 @@ def query_gemini_costs(days: int = 30) -> None:
             print("   This usually means:")
             print("   1. Billing export not enabled yet")
             print("   2. Data hasn't been exported yet (takes 24-48 hours)")
-            print(f"\n   Enable at: https://console.cloud.google.com/billing/01D2F4-3F2B44-2B0851/export")
+            print("\n   Enable at: https://console.cloud.google.com/billing/01D2F4-3F2B44-2B0851/export")
             print(f"   Select project: {PROJECT_ID}")
             print(f"   Select dataset: {DATASET_ID}")
             return
@@ -131,7 +131,7 @@ def query_gemini_costs(days: int = 30) -> None:
         print("-" * 70)
         print(f"  📥 Input tokens cost:  ${input_cost:.2f}")
         print(f"  📤 Output tokens cost: ${output_cost:.2f}")
-        print(f"  ━━━━━━━━━━━━━━━━━━━━━━━")
+        print("  ━━━━━━━━━━━━━━━━━━━━━━━")
         print(f"  💰 Total Gemini cost:  ${total_cost:.2f}")
         
         if input_cost + output_cost > 0:

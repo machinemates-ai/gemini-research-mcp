@@ -23,24 +23,22 @@ Authentication:
 from __future__ import annotations
 
 import argparse
-import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 # Google Cloud clients
 try:
-    from google.cloud import monitoring_v3
+    from google.cloud import billing_v1, monitoring_v3
     from google.cloud.billing import budgets_v1
-    from google.cloud import billing_v1
     HAS_CLOUD_LIBS = True
 except ImportError:
     HAS_CLOUD_LIBS = False
 
 try:
     import google.auth
+    import requests
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
-    import requests
     HAS_AUTH = True
 except ImportError:
     HAS_AUTH = False
@@ -156,7 +154,7 @@ def get_usage_from_monitoring(
     client = monitoring_v3.MetricServiceClient()
     project_name = f"projects/{project_id}"
     
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start_time = now - timedelta(days=days)
     
     # Time interval
@@ -208,7 +206,7 @@ def get_usage_from_monitoring(
                     "metric_type": metric_type,
                 }
                 
-        except Exception as e:
+        except Exception:
             # Metric might not exist for this project
             pass
     
