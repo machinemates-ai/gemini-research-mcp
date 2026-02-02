@@ -34,11 +34,19 @@ MCP server for AI-powered research using **Gemini**. Fast grounded search + comp
 
 ## Installation
 
+### PyPI (recommended)
+
 ```bash
 pip install gemini-research-mcp
 # or
 uv add gemini-research-mcp
 ```
+
+### Claude Desktop (MCPB Bundle)
+
+Download the `.mcpb` bundle from [GitHub Releases](https://github.com/machinemates-ai/gemini-research-mcp/releases) and open it in Claude Desktop for single-click installation.
+
+The bundle uses UV runtime - dependencies are installed automatically, no Python required.
 
 ## Configuration
 

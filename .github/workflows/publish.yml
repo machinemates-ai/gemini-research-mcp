@@ -40,11 +40,23 @@ jobs:
       - name: Build package
         run: uv build
 
-      - name: Upload artifacts
+      - name: Upload Python artifacts
         uses: actions/upload-artifact@v4
         with:
           name: dist
           path: dist/
+
+      - name: Install mcpb CLI
+        run: npm install -g @anthropic-ai/mcpb
+
+      - name: Build MCPB bundle
+        run: mcpb pack . gemini-research-mcp.mcpb
+
+      - name: Upload MCPB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcpb
+          path: gemini-research-mcp.mcpb
 
   publish-testpypi:
     needs: build
@@ -83,3 +95,20 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+  attach-mcpb:
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # To upload release assets
+    steps:
+      - name: Download MCPB artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mcpb
+
+      - name: Attach MCPB to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: gemini-research-mcp.mcpb

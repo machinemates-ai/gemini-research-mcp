@@ -1,0 +1,56 @@
+# Ignore files for mcpb bundle
+# UV runtime handles dependencies via pyproject.toml, no need to bundle them
+
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Virtual environments (UV creates these automatically)
+.venv/
+venv/
+ENV/
+env/
+
+# Development/test files
+.git/
+.github/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Test files
+tests/
+
+# IDE settings
+.vscode/
+.idea/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Documentation and examples (not needed in bundle)
+docs/
+examples/
+conductor/
+scripts/
+
+# Environment files (user provides via user_config)
+.env
+.env.*
+!.env.example
+
+# Local ignore patterns
+.gitignorelocal
+
+# Temporary files
+*.log
+*.tmp
+*~

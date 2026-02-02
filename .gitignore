@@ -24,6 +24,7 @@ htmlcov/
 # Build
 dist/
 build/
+*.mcpb
 
 # Playwright MCP artifacts
 .playwright-mcp/

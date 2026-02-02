@@ -1,0 +1,75 @@
+{
+  "manifest_version": "0.4",
+  "name": "gemini-research-mcp",
+  "display_name": "Gemini Research",
+  "version": "0.4.0",
+  "description": "AI-powered research using Gemini: quick grounded search + Deep Research Agent",
+  "long_description": "MCP server providing AI-powered research capabilities using Google Gemini:\n\n- **research_web**: Fast web research with Gemini grounding (5-30 seconds)\n- **research_deep**: Comprehensive autonomous research agent (3-20 minutes)\n- **research_followup**: Continue conversation with previous deep research sessions\n- **resume_research**: Recover interrupted or in-progress research sessions\n- **list_research_sessions_tool**: List previous research sessions\n- **export_research_session**: Export completed research to Markdown, JSON, or Word (DOCX)",
+  "author": {
+    "name": "Guillaume Fortaine",
+    "email": "guillaume.fortaine+github@machinemates.ai",
+    "url": "https://machinemates.ai"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/machinemates-ai/gemini-research-mcp"
+  },
+  "homepage": "https://github.com/machinemates-ai/gemini-research-mcp",
+  "documentation": "https://github.com/machinemates-ai/gemini-research-mcp#readme",
+  "support": "https://github.com/machinemates-ai/gemini-research-mcp/issues",
+  "server": {
+    "type": "uv",
+    "entry_point": "src/gemini_research_mcp/server.py"
+  },
+  "tools": [
+    {
+      "name": "research_web",
+      "description": "Fast web research with Gemini grounding (5-30 seconds). Use for fact-checking, current events, documentation."
+    },
+    {
+      "name": "research_deep",
+      "description": "Comprehensive autonomous research agent (3-20 minutes). Use for research reports, competitive analysis, investigations."
+    },
+    {
+      "name": "research_followup",
+      "description": "Continue conversation with any previous deep research session."
+    },
+    {
+      "name": "resume_research",
+      "description": "Recover interrupted or in-progress research sessions."
+    },
+    {
+      "name": "list_research_sessions_tool",
+      "description": "Returns JSON list of previous research sessions with queries and summaries."
+    },
+    {
+      "name": "export_research_session",
+      "description": "Export completed research to Markdown, JSON, or Word (DOCX) format."
+    }
+  ],
+  "user_config": {
+    "gemini_api_key": {
+      "type": "string",
+      "title": "Gemini API Key",
+      "description": "Your Google Gemini API key (get one at https://aistudio.google.com/apikey)",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "python": ">=3.12"
+    }
+  },
+  "keywords": [
+    "mcp",
+    "gemini",
+    "research",
+    "ai",
+    "deep-research",
+    "grounding",
+    "google-search"
+  ],
+  "license": "MIT"
+}
