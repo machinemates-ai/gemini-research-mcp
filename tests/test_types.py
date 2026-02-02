@@ -278,3 +278,70 @@ class TestDeepResearchError:
         with pytest.raises(DeepResearchError) as exc_info:
             raise DeepResearchError(code="TEST", message="Test error")
         assert exc_info.value.code == "TEST"
+
+
+class TestCritiqueResult:
+    """Test CritiqueResult dataclass for auto-refine feature."""
+
+    def test_construction_pass(self):
+        """CritiqueResult should be constructable with PASS rating."""
+        from gemini_research_mcp.types import CritiqueResult
+        result = CritiqueResult(rating="PASS")
+        assert result.rating == "PASS"
+        assert result.gaps == []
+        assert result.follow_up_questions == []
+        assert result.raw_response is None
+
+    def test_construction_needs_refinement(self):
+        """CritiqueResult should work with full args."""
+        from gemini_research_mcp.types import CritiqueResult
+        result = CritiqueResult(
+            rating="NEEDS_REFINEMENT",
+            gaps=["Missing market size data", "No competitor analysis"],
+            follow_up_questions=[
+                "What is the total addressable market?",
+                "Who are the top 3 competitors?",
+            ],
+            raw_response="RATING: NEEDS_REFINEMENT\n...",
+        )
+        assert result.rating == "NEEDS_REFINEMENT"
+        assert len(result.gaps) == 2
+        assert len(result.follow_up_questions) == 2
+
+    def test_needs_refinement_property(self):
+        """needs_refinement property should work correctly."""
+        from gemini_research_mcp.types import CritiqueResult
+        
+        # PASS should not need refinement
+        pass_result = CritiqueResult(rating="PASS")
+        assert pass_result.needs_refinement is False
+
+        # NEEDS_REFINEMENT should need refinement
+        refine_result = CritiqueResult(rating="NEEDS_REFINEMENT")
+        assert refine_result.needs_refinement is True
+
+        # Any other rating should need refinement
+        other_result = CritiqueResult(rating="UNKNOWN")
+        assert other_result.needs_refinement is True
+
+    def test_to_dict(self):
+        """to_dict should serialize CritiqueResult."""
+        from gemini_research_mcp.types import CritiqueResult
+        result = CritiqueResult(
+            rating="NEEDS_REFINEMENT",
+            gaps=["Gap 1"],
+            follow_up_questions=["Question 1", "Question 2"],
+            raw_response="...",
+        )
+        d = result.to_dict()
+        assert d["rating"] == "NEEDS_REFINEMENT"
+        assert d["gaps"] == ["Gap 1"]
+        assert d["follow_up_questions"] == ["Question 1", "Question 2"]
+        # raw_response should NOT be in to_dict (privacy)
+        assert "raw_response" not in d
+
+    def test_slots(self):
+        """CritiqueResult should use slots for memory efficiency."""
+        from gemini_research_mcp.types import CritiqueResult
+        result = CritiqueResult(rating="PASS")
+        assert not hasattr(result, "__dict__")

@@ -220,6 +220,32 @@ class DeepResearchProgress:
     event_id: str | None = None  # For stream resumption after disconnection
 
 
+@dataclass(slots=True)
+class CritiqueResult:
+    """Result from _critique_research().
+
+    Inspired by ADK Deep Search's research_evaluator Feedback schema.
+    """
+
+    rating: str  # "PASS" or "NEEDS_REFINEMENT"
+    gaps: list[str] = field(default_factory=list)
+    follow_up_questions: list[str] = field(default_factory=list)
+    raw_response: str | None = None
+
+    @property
+    def needs_refinement(self) -> bool:
+        """Whether the research needs additional refinement."""
+        return self.rating != "PASS"
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "rating": self.rating,
+            "gaps": self.gaps,
+            "follow_up_questions": self.follow_up_questions,
+        }
+
+
 # =============================================================================
 # File Search Store (RAG)
 # TODO: These types are defined for future use with file search capabilities

@@ -53,6 +53,11 @@ docx = [
     "python-docx>=1.2.0",
     "pygments>=2.19.2",
 ]
+# High-quality web content extraction (F1: 0.937)
+# Falls back to basic HTML parsing if not installed
+web = [
+    "trafilatura>=2.0.0",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
@@ -63,6 +68,7 @@ dev = [
     "marko>=2.2.2",
     "python-docx>=1.2.0",
     "pygments>=2.19.2",
+    "trafilatura>=2.0.0",
     "types-Pygments>=2.19.0",
 ]
 

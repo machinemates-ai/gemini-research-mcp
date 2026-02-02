@@ -23,6 +23,56 @@ def api_available():
     return bool(os.environ.get("GEMINI_API_KEY"))
 
 
+class TestFetchWebpageE2E:
+    """End-to-end tests for fetch_webpage (no Gemini API required)."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.e2e
+    async def test_fetch_public_url(self):
+        """Fetching a public URL should return content."""
+        from gemini_research_mcp.content import fetch_webpage
+
+        result = await fetch_webpage("https://httpbin.org/html")
+
+        assert result.error is None, f"Should succeed, got: {result.error}"
+        assert result.content, "Should have content"
+        assert len(result.content) > 50, "Should have substantial content"
+        assert result.word_count > 0, "Should have word count"
+
+    @pytest.mark.asyncio
+    @pytest.mark.e2e
+    async def test_fetch_json_api(self):
+        """Fetching JSON endpoint should work (basic extraction)."""
+        from gemini_research_mcp.content import fetch_webpage
+
+        result = await fetch_webpage("https://httpbin.org/json")
+
+        # JSON is not ideal for trafilatura but should not error
+        assert result.error is None, f"Should not error: {result.error}"
+
+    @pytest.mark.asyncio
+    @pytest.mark.e2e
+    async def test_fetch_404_returns_error(self):
+        """Fetching 404 page should return HTTP error."""
+        from gemini_research_mcp.content import fetch_webpage
+
+        result = await fetch_webpage("https://httpbin.org/status/404")
+
+        assert result.error is not None, "Should have error"
+        assert "404" in result.error, "Should mention 404"
+
+    @pytest.mark.asyncio
+    @pytest.mark.e2e
+    async def test_mcp_tool_wrapper(self):
+        """MCP tool wrapper should work end-to-end."""
+        from gemini_research_mcp.server import fetch_webpage as mcp_fetch
+
+        result = await mcp_fetch("https://httpbin.org/html")
+
+        assert "❌" not in result, f"Should succeed: {result}"
+        assert "Extracted" in result or len(result) > 100, "Should have content"
+
+
 class TestResearchWebE2E:
     """End-to-end tests for research_web (quick grounded search)."""
 

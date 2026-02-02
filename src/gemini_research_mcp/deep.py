@@ -37,6 +37,7 @@ from gemini_research_mcp.config import (
     is_retryable_error,
 )
 from gemini_research_mcp.types import (
+    CritiqueResult,
     DeepResearchAgent,
     DeepResearchError,
     DeepResearchProgress,
@@ -45,6 +46,105 @@ from gemini_research_mcp.types import (
 )
 
 logger = logging.getLogger(LOGGER_NAME)
+
+
+# =============================================================================
+# Critique Helper (inspired by ADK research_evaluator)
+# =============================================================================
+
+
+async def critique_research(
+    query: str,
+    report: str,
+    *,
+    model: str = "gemini-3-pro-preview",
+) -> CritiqueResult:
+    """
+    Evaluate research quality and identify gaps.
+
+    Inspired by ADK Deep Search's research_evaluator agent which uses:
+    - LlmAgent with Feedback output schema (grade, comment, follow_up_queries)
+    - Iterative refinement loop with max 5 cycles
+
+    Args:
+        query: Original research query
+        report: Generated research report
+        model: Model to use for critique
+
+    Returns:
+        CritiqueResult with rating, gaps, and follow-up questions
+    """
+    # Import template here to avoid circular imports
+    from gemini_research_mcp.templates import CRITIQUE_PROMPT
+
+    prompt = CRITIQUE_PROMPT.format(query=query, report=report[:50000])  # Truncate if huge
+
+    client = _get_healthy_client()
+
+    try:
+        response = await client.aio.models.generate_content(
+            model=model,
+            contents=prompt,
+        )
+        _record_client_success()
+
+        response_text = response.text or ""
+
+        # Parse the structured response
+        rating = "NEEDS_REFINEMENT"  # Default to needing refinement
+        if "RATING: PASS" in response_text.upper():
+            rating = "PASS"
+
+        # Extract follow-up questions
+        follow_up_questions: list[str] = []
+        lines = response_text.split("\n")
+        in_questions = False
+        for line in lines:
+            line = line.strip()
+            if "FOLLOW_UP_QUESTIONS:" in line.upper() or "FOLLOW-UP QUESTIONS:" in line.upper():
+                in_questions = True
+                continue
+            if in_questions and line.startswith(("1.", "2.", "3.", "4.", "5.")):
+                question = line.split(".", 1)[-1].strip()
+                if question:
+                    follow_up_questions.append(question)
+
+        # Extract gaps
+        gaps: list[str] = []
+        in_gaps = False
+        for line in lines:
+            line = line.strip()
+            if "GAPS IDENTIFIED:" in line.upper():
+                in_gaps = True
+                continue
+            if in_gaps and line.startswith("-"):
+                gap = line[1:].strip()
+                if gap:
+                    gaps.append(gap)
+            elif in_gaps and (line.startswith("FOLLOW") or not line):
+                in_gaps = False
+
+        logger.info(
+            "📊 Critique result: rating=%s, gaps=%d, follow_ups=%d",
+            rating, len(gaps), len(follow_up_questions)
+        )
+
+        return CritiqueResult(
+            rating=rating,
+            gaps=gaps,
+            follow_up_questions=follow_up_questions,
+            raw_response=response_text,
+        )
+
+    except Exception as e:
+        logger.warning("Critique failed: %s", e)
+        # Return a default result on failure (don't block the main research)
+        return CritiqueResult(
+            rating="PASS",  # Assume pass if critique fails
+            gaps=[],
+            follow_up_questions=[],
+            raw_response=f"Critique failed: {e}",
+        )
 
 
 # =============================================================================
@@ -560,6 +660,7 @@ async def deep_research(
     agent_name: DeepResearchAgent | None = None,
     resolve_citations: bool = True,
     timeout: float = DEFAULT_TIMEOUT,
+    auto_refine: bool = False,
 ) -> DeepResearchResult:
     """
     Comprehensive multi-step research using Gemini Deep Research Agent.
@@ -578,6 +679,8 @@ async def deep_research(
         agent_name: Deep Research agent to use
         resolve_citations: Whether to extract and resolve citation URLs
         timeout: Maximum wait time in seconds
+        auto_refine: If True, run a critique cycle and append findings.
+                     Inspired by ADK Deep Search's iterative refinement loop.
 
     Returns:
         DeepResearchResult with collected text, thinking summaries, usage, and citations
@@ -689,6 +792,67 @@ async def deep_research(
 
     if resolve_citations and final_text:
         result = await process_citations(result, resolve_urls=True)
+
+    # =========================================================================
+    # Auto-refine: Run critique cycle and append findings
+    # Inspired by ADK Deep Search's iterative refinement loop
+    # =========================================================================
+    if auto_refine and result.text and result.interaction_id:
+        logger.info("🔄 AUTO_REFINE: Running critique cycle...")
+
+        if on_progress:
+            prog = DeepResearchProgress(
+                event_type="status",
+                content="Running quality critique...",
+                interaction_id=result.interaction_id,
+            )
+            cb = on_progress(prog)
+            if inspect.isawaitable(cb):
+                await cb
+
+        critique = await critique_research(query, result.text)
+
+        if critique.needs_refinement and critique.follow_up_questions:
+            logger.info(
+                "🔄 AUTO_REFINE: Found %d gaps, running %d follow-up questions",
+                len(critique.gaps),
+                len(critique.follow_up_questions),
+            )
+
+            if on_progress:
+                prog = DeepResearchProgress(
+                    event_type="status",
+                    content=f"Refining: {len(critique.follow_up_questions)} follow-up queries",
+                    interaction_id=result.interaction_id,
+                )
+                cb = on_progress(prog)
+                if inspect.isawaitable(cb):
+                    await cb
+
+            # Run follow-up questions to fill gaps
+            refinements: list[str] = []
+            for i, question in enumerate(critique.follow_up_questions[:3], 1):  # Max 3
+                try:
+                    logger.info("   🔍 Follow-up %d: %s", i, question[:80])
+                    followup_response = await research_followup(
+                        result.interaction_id,
+                        question,
+                    )
+                    if followup_response:
+                        refinements.append(f"### {question}\n\n{followup_response}")
+                except Exception as e:
+                    logger.warning("   ⚠️ Follow-up %d failed: %s", i, e)
+
+            # Append refinements to the report
+            if refinements:
+                appendix = "\n\n---\n\n## Refinements\n\n" + "\n\n".join(refinements)
+                result.text = result.text + appendix
+                result.thinking_summaries.append(
+                    f"Auto-refinement: Addressed {len(refinements)} gaps identified by critique"
+                )
+                logger.info("✅ AUTO_REFINE: Appended %d refinements", len(refinements))
+        else:
+            logger.info("✅ AUTO_REFINE: Report passed quality check, no refinement needed")
 
     return result
 

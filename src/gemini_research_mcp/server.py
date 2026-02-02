@@ -42,7 +42,11 @@ from pydantic import AnyUrl, BaseModel, Field
 from gemini_research_mcp import __version__
 from gemini_research_mcp.citations import process_citations
 from gemini_research_mcp.config import LOGGER_NAME, get_deep_research_agent, get_model
-from gemini_research_mcp.deep import deep_research_stream, get_research_status
+from gemini_research_mcp.content import fetch_webpage as _fetch_webpage
+from gemini_research_mcp.deep import (
+    deep_research_stream,
+    get_research_status,
+)
 from gemini_research_mcp.deep import research_followup as _research_followup
 from gemini_research_mcp.export import (
     ExportFormat,
@@ -210,6 +214,13 @@ Use for: "elaborate", "clarify", "summarize", follow-up questions.
 - No need to track interaction_ids manually
 - Sessions last 55 days (paid tier)
 
+## Fetch Webpage (fetch_webpage)
+Extract content from any URL as clean Markdown (sub-second).
+Use for: reading articles, documentation, blog posts, extracting linked content.
+- High-quality extraction via trafilatura (F1: 0.937)
+- SSRF protection (blocks private IPs, cloud metadata)
+- Falls back to basic HTML parsing if trafilatura unavailable
+
 ## Resume Research (resume_research)
 Recover interrupted or in-progress research sessions.
 Use for: VS Code disconnections, network issues, checking ongoing research.
@@ -229,6 +240,7 @@ Use for: sharing reports, archiving research, creating deliverables.
 **Workflow:**
 - Simple questions → research_web
 - Complex questions → research_deep
+- Read a URL → fetch_webpage
 - VS Code disconnected during research? → resume_research
 - "What did I research about X?" → list_research_sessions_tool
 - Continue old research → research_followup (auto-matches session)
@@ -363,6 +375,59 @@ async def research_web(
     except Exception as e:
         logger.exception("research_web failed: %s", e)
         return f"❌ Research failed: {e}"
+
+
+# =============================================================================
+# Fetch Webpage Tool (FastMCP 3.0 pattern)
+# =============================================================================
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def fetch_webpage(
+    url: Annotated[str, "URL of the webpage to fetch and extract content from"],
+) -> str:
+    """
+    Fetch and extract content from a webpage as Markdown.
+
+    Uses trafilatura for high-quality content extraction (F1: 0.937).
+    Falls back to basic HTML parsing if trafilatura is unavailable.
+
+    Security: Blocks requests to private IPs, localhost, and cloud metadata endpoints
+    (SSRF protection).
+
+    Use for: Reading articles, documentation, blog posts, extracting content from
+    URLs found in research results.
+
+    Args:
+        url: The URL to fetch (must be http/https, no private IPs)
+
+    Returns:
+        Extracted content as Markdown, or error message if fetch failed
+    """
+    logger.info("🌐 fetch_webpage: %s", url[:100])
+
+    result = await _fetch_webpage(url)
+
+    if result.error:
+        return f"❌ Failed to fetch: {result.error}"
+
+    # Format the response
+    lines = []
+
+    if result.title:
+        lines.append(f"# {result.title}")
+        lines.append("")
+
+    lines.append(result.content)
+
+    if result.word_count:
+        lines.extend([
+            "",
+            "---",
+            f"*Extracted {result.word_count:,} words from {url}*",
+        ])
+
+    return "\n".join(lines)
 
 
 # =============================================================================
@@ -516,6 +581,10 @@ async def research_deep(
         list[str] | None,
         "Optional: Gemini File Search store names to search your own data alongside web",
     ] = None,
+    auto_refine: Annotated[
+        bool,
+        "If True, run automatic critique cycle and append refinements to fill gaps",
+    ] = False,
     ctx: Context[Any, Any, Any] | None = None,
 ) -> str:
     """
@@ -531,6 +600,7 @@ async def research_deep(
         query: Research question or topic (can be vague - clarification is automatic)
         format_instructions: Optional report structure/tone guidance
         file_search_store_names: Optional file stores for RAG over your own data
+        auto_refine: Run automatic quality critique and fill gaps (adds ~30s-2min)
 
     Returns:
         Comprehensive research report with citations
@@ -540,6 +610,18 @@ async def research_deep(
         logger.info("   📝 Format: %s", format_instructions[:80])
     if file_search_store_names:
         logger.info("   📁 File search stores: %s", file_search_store_names)
+    if auto_refine:
+        logger.info("   🔄 Auto-refine: enabled")
+
+    # Resolve template key to full template instructions
+    effective_format = format_instructions
+    if format_instructions:
+        from gemini_research_mcp.templates import get_template
+
+        template = get_template(format_instructions)
+        if template:
+            logger.info("   📋 Using template: %s", template.name)
+            effective_format = str(template)
 
     start = time.time()
 
@@ -572,7 +654,7 @@ async def research_deep(
         # Consume the stream to get interaction_id and track progress
         async for event in deep_research_stream(
             query=effective_query,
-            format_instructions=format_instructions,
+            format_instructions=effective_format,
             file_search_store_names=file_search_store_names,
         ):
             if event.interaction_id:
@@ -658,6 +740,47 @@ async def research_deep(
 
                 result = await process_citations(result, resolve_urls=True)
 
+                # ============================================================
+                # Auto-refine: Run critique cycle and append findings
+                # ============================================================
+                if auto_refine and result.text and interaction_id:
+                    logger.info("   🔄 AUTO_REFINE: Running critique cycle...")
+                    if ctx:
+                        await ctx.info("Running quality critique...")
+
+                    from gemini_research_mcp.deep import critique_research
+
+                    critique = await critique_research(effective_query, result.text)
+
+                    if critique.needs_refinement and critique.follow_up_questions:
+                        logger.info(
+                            "   🔄 Found %d gaps, running %d follow-ups",
+                            len(critique.gaps),
+                            len(critique.follow_up_questions),
+                        )
+                        if ctx:
+                            await ctx.info(
+                                f"Refining: {len(critique.follow_up_questions)} follow-up queries"
+                            )
+
+                        refinements: list[str] = []
+                        for i, question in enumerate(critique.follow_up_questions[:3], 1):
+                            try:
+                                followup_response = await _research_followup(
+                                    interaction_id, question
+                                )
+                                if followup_response:
+                                    refinements.append(f"### {question}\n\n{followup_response}")
+                            except Exception as e:
+                                logger.warning("   ⚠️ Follow-up %d failed: %s", i, e)
+
+                        if refinements:
+                            appendix = "\n\n---\n\n## Refinements\n\n" + "\n\n".join(refinements)
+                            result.text = (result.text or "") + appendix
+                            logger.info("   ✅ Appended %d refinements", len(refinements))
+                    else:
+                        logger.info("   ✅ Report passed quality check")
+
                 # Auto-save session for later follow-up
                 total_tokens = None
                 if result.usage and result.usage.total_tokens:
@@ -734,6 +857,200 @@ async def research_deep(
             code="INTERNAL_ERROR",
             message=str(e),
         ) from e
+
+
+# =============================================================================
+# research_deep_planned: Plan → Approve → Execute workflow
+# Inspired by ADK Deep Search's interactive_planner_agent
+# =============================================================================
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def research_deep_planned(
+    query: Annotated[str, "Research question or topic to investigate thoroughly"],
+    format_instructions: Annotated[
+        str | None,
+        "Optional report format (e.g., 'executive briefing', 'comparison table')",
+    ] = None,
+    ctx: Context[Any, Any, Any] | None = None,
+) -> str:
+    """
+    Deep research with explicit plan approval step before execution.
+
+    Generates a research plan first, presents it for approval via MCP elicitation,
+    then executes the approved plan. This gives you control over the research direction.
+
+    Workflow:
+    1. Generate research plan (5-15 seconds)
+    2. Present plan for approval (user interaction)
+    3. Execute approved plan (3-20 minutes)
+
+    Use for: When you want to review/modify the research approach before investing time.
+
+    Args:
+        query: Research question or topic
+        format_instructions: Optional report structure/tone guidance
+
+    Returns:
+        Comprehensive research report with citations
+    """
+    from gemini_research_mcp.templates import RESEARCH_PLAN_PROMPT
+
+    logger.info("📋 research_deep_planned: %s", query[:100])
+    start = time.time()
+
+    # Phase 1: Generate research plan using quick_research
+    if ctx:
+        await ctx.info("Generating research plan...")
+
+    try:
+        plan_prompt = RESEARCH_PLAN_PROMPT.format(query=query)
+        plan_result = await quick_research(
+            query=plan_prompt,
+            include_thoughts=False,
+        )
+        plan_text = plan_result.text
+        logger.info("   📝 Generated plan in %.1fs", time.time() - start)
+
+    except Exception as e:
+        logger.exception("Plan generation failed: %s", e)
+        return f"❌ Failed to generate research plan: {e}"
+
+    # Phase 2: Present plan for approval via MCP elicitation
+    if ctx is None:
+        # No context available - proceed without approval
+        logger.warning("   ⚠️ No context for elicitation, proceeding with plan")
+        approved_plan = plan_text
+    else:
+        try:
+            from pydantic import create_model
+
+            PlanApproval = create_model(
+                "PlanApproval",
+                approved_plan=(
+                    str,
+                    Field(
+                        default=plan_text,
+                        description="Edit the plan or leave as-is to approve",
+                    ),
+                ),
+            )
+
+            message = (
+                f"## Research Plan for: \"{query}\"\n\n"
+                f"{plan_text}\n\n"
+                f"---\n\n"
+                f"Edit the plan below or press **Continue** to approve and start research.\n"
+                f"Press **Cancel** to abort."
+            )
+
+            result = await ctx.elicit(
+                message=message,
+                schema=PlanApproval,
+            )
+
+            if result.action == "cancel":
+                return "❌ Research cancelled by user."
+
+            if result.action == "accept" and result.data:
+                data = result.data.model_dump() if hasattr(result.data, "model_dump") else {}
+                approved_plan = data.get("approved_plan", plan_text)
+                if approved_plan != plan_text:
+                    logger.info("   ✏️ User modified the plan")
+            else:
+                approved_plan = plan_text
+
+        except Exception as e:
+            logger.warning("   ⚠️ Elicitation failed: %s, proceeding with plan", e)
+            approved_plan = plan_text
+
+    # Phase 3: Execute approved plan with research_deep
+    logger.info("   🚀 Executing approved plan...")
+    if ctx:
+        await ctx.info("Starting research with approved plan...")
+
+    # Combine query with approved plan as format instructions
+    combined_instructions = (
+        f"Follow this research plan:\n\n{approved_plan}"
+        + (f"\n\nAdditional formatting:\n{format_instructions}" if format_instructions else "")
+    )
+
+    # Use the research_deep function directly
+    return await research_deep(
+        query=query,
+        format_instructions=combined_instructions,
+        ctx=ctx,
+    )
+
+
+# =============================================================================
+# list_format_templates: Show available format instruction templates
+# =============================================================================
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def list_format_templates(
+    category: Annotated[
+        str | None,
+        "Filter by category: 'business', 'analysis', 'technical', or 'academic'",
+    ] = None,
+) -> str:
+    """
+    List available format instruction templates for research_deep.
+
+    Pre-built templates help generate consistently structured reports:
+    - executive_briefing: C-suite summary with key findings and recommendations
+    - competitive_analysis: Deep dive comparison of competitors
+    - comparison_table: Side-by-side feature comparison with verdict
+    - technical_overview: Technical explanation for engineers
+    - literature_review: Academic-style synthesis of research
+
+    Use the template name with research_deep's format_instructions parameter:
+    Example: research_deep(query="...", format_instructions="executive_briefing")
+
+    Returns:
+        JSON list of available templates with descriptions
+    """
+    from gemini_research_mcp.templates import ALL_TEMPLATES, TEMPLATES_BY_CATEGORY, TemplateCategory
+
+    logger.info("📋 list_format_templates: category=%s", category)
+
+    if category:
+        try:
+            cat = TemplateCategory(category.lower())
+            templates = TEMPLATES_BY_CATEGORY.get(cat, [])
+            template_list = [
+                {
+                    "key": key,
+                    "name": t.name,
+                    "description": t.description,
+                    "category": t.category.value,
+                }
+                for key, t in ALL_TEMPLATES.items()
+                if t in templates
+            ]
+        except ValueError:
+            return json.dumps({
+                "error": f"Invalid category: {category}",
+                "valid_categories": [c.value for c in TemplateCategory],
+            })
+    else:
+        template_list = [
+            {
+                "key": key,
+                "name": t.name,
+                "description": t.description,
+                "category": t.category.value,
+            }
+            for key, t in ALL_TEMPLATES.items()
+        ]
+
+    return json.dumps({
+        "templates": template_list,
+        "count": len(template_list),
+        "usage": "Pass template key to research_deep's format_instructions parameter",
+        "example": 'research_deep(query="...", format_instructions="executive_briefing")',
+    }, indent=2)
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
