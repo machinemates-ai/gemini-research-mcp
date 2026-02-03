@@ -976,7 +976,7 @@ async def research_deep_planned(
     )
 
     # Use the research_deep function directly
-    return await research_deep(
+    return await research_deep(  # type: ignore[no-any-return]
         query=query,
         format_instructions=combined_instructions,
         ctx=ctx,

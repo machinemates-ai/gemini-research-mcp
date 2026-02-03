@@ -260,7 +260,7 @@ async def fetch_webpage(url: str) -> FetchResult:
         from html.parser import HTMLParser
 
         class TextExtractor(HTMLParser):
-            def __init__(self):
+            def __init__(self) -> None:
                 super().__init__()
                 self.text_parts: list[str] = []
                 self.title: str | None = None
