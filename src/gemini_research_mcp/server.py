@@ -969,13 +969,13 @@ async def research_deep_planned(
         + (f"\n\nAdditional formatting:\n{format_instructions}" if format_instructions else "")
     )
 
-    # Use the research_deep function directly
-    deep_result: str = await research_deep.fn(
+    # Call research_deep directly (fastmcp decorator preserves the original function)
+    # Note: mypy thinks @mcp.tool returns FunctionTool but at runtime it's the original function
+    return await research_deep(  # type: ignore[operator, no-any-return]
         query=query,
         format_instructions=combined_instructions,
         ctx=ctx,
     )
-    return deep_result
 
 
 # =============================================================================
