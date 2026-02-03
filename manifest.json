@@ -19,7 +19,14 @@
   "support": "https://github.com/machinemates-ai/gemini-research-mcp/issues",
   "server": {
     "type": "uv",
-    "entry_point": "src/gemini_research_mcp/server.py"
+    "entry_point": "src/gemini_research_mcp/server.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": ["run", "--directory", "{{install_path}}", "gemini-research-mcp"],
+      "env": {
+        "GEMINI_API_KEY": "{{user_config.gemini_api_key}}"
+      }
+    }
   },
   "tools": [
     {
