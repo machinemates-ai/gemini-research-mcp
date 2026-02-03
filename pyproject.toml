@@ -34,8 +34,9 @@ classifiers = [
 ]
 dependencies = [
     "google-genai>=1.60.0",
-    # MCP upgraded from 1.10.0 to 1.26.0; restrict to 1.x to avoid unexpected breaking changes.
-    "mcp>=1.26.0,<2.0.0",
+    # FastMCP with background task support (merged to main, pending official release)
+    # Switch back to PyPI release once fastmcp publishes a new version with background tasks
+    "fastmcp @ git+https://github.com/jlowin/fastmcp.git@main",
     "httpx>=0.28.1",
     "python-dotenv>=1.2.1",
     # Persistent storage using industry-standard key-value interface (used by FastMCP, agentpool, etc.)
