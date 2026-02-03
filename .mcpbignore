@@ -31,6 +31,9 @@ tests/
 .vscode/
 .idea/
 
+# VS Code extension (separate package, not part of MCP server)
+vscode-extension/
+
 # Build artifacts
 dist/
 build/
