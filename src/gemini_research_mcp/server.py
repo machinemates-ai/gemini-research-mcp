@@ -1686,6 +1686,30 @@ def list_exports() -> str:
 
 def main() -> None:
     """Run the MCP server on stdio transport."""
+    import argparse
+    import os
+
+    parser = argparse.ArgumentParser(
+        prog="gemini-research-mcp",
+        description="Gemini Research MCP Server - AI-powered research tools",
+    )
+    parser.add_argument(
+        "--api-key",
+        metavar="KEY",
+        help="Gemini API key (or set GEMINI_API_KEY environment variable)",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
+
+    args = parser.parse_args()
+
+    # Set API key from CLI flag if provided (overrides env var)
+    if args.api_key:
+        os.environ["GEMINI_API_KEY"] = args.api_key
+
     logger.info("🚀 Starting Gemini Research MCP Server v%s (MCP SDK)", __version__)
     logger.info("   Transport: stdio")
     logger.info("   Task mode: enabled (MCP Tasks / SEP-1732)")

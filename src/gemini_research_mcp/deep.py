@@ -182,7 +182,8 @@ async def grounded_critique(
     report_excerpt = report[:30000] if len(report) > 30000 else report
 
     # Best Practice: Explicit system instruction about search access (per Google docs)
-    prompt = f"""You are a rigorous fact-checker with access to Google Search. Always verify dates, names, and specific claims before responding.
+    prompt = f"""You are a rigorous fact-checker with access to Google Search.
+Always verify dates, names, and specific claims before responding.
 
 ORIGINAL QUERY: {query}
 
@@ -274,7 +275,11 @@ RATING: VERIFIED | PARTIALLY_VERIFIED | DISPUTED | INSUFFICIENT_DATA
 
         logger.info(
             "🔍 Grounded critique: rating=%s, verified=%d, disputed=%d, sources=%d, queries=%d",
-            fact_check_rating, len(claims_verified), len(claims_disputed), len(sources), len(search_queries_used)
+            fact_check_rating,
+            len(claims_verified),
+            len(claims_disputed),
+            len(sources),
+            len(search_queries_used),
         )
 
         return GroundedCritiqueResult(

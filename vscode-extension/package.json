@@ -1,0 +1,92 @@
+{
+  "name": "gemini-research-mcp",
+  "displayName": "Gemini Research MCP",
+  "description": "AI-powered research using Google Gemini: fast grounded search + Deep Research Agent for comprehensive reports",
+  "version": "0.11.0",
+  "publisher": "machinemates-ai",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "keywords": [
+    "mcp",
+    "gemini",
+    "research",
+    "ai",
+    "deep-research",
+    "google-search",
+    "copilot",
+    "chat-participant"
+  ],
+  "icon": "icon.png",
+  "galleryBanner": {
+    "color": "#1a73e8",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/machinemates-ai/gemini-research-mcp"
+  },
+  "homepage": "https://github.com/machinemates-ai/gemini-research-mcp",
+  "bugs": {
+    "url": "https://github.com/machinemates-ai/gemini-research-mcp/issues"
+  },
+  "extensionDependencies": [
+    "github.copilot-chat"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "chatParticipants": [],
+    "languageModelToolsInChat": [
+      {
+        "name": "gemini_research_web",
+        "displayName": "Gemini Quick Research",
+        "modelDescription": "Fast web research with Gemini grounding (5-30 seconds). Use for fact-checking, current events, documentation."
+      },
+      {
+        "name": "gemini_research_deep",
+        "displayName": "Gemini Deep Research",
+        "modelDescription": "Comprehensive autonomous research agent (3-20 minutes). Use for research reports, competitive analysis, investigations."
+      }
+    ],
+    "configuration": {
+      "title": "Gemini Research MCP",
+      "properties": {
+        "gemini-research-mcp.apiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Your Gemini API key. Get one at [Google AI Studio](https://aistudio.google.com/apikey).",
+          "scope": "application",
+          "order": 1
+        }
+      }
+    },
+    "mcpServers": {
+      "gemini-research": {
+        "command": "uvx",
+        "args": ["gemini-research-mcp"],
+        "env": {
+          "GEMINI_API_KEY": "${config:gemini-research-mcp.apiKey}"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "^3.0.0",
+    "typescript": "^5.7.0"
+  }
+}
