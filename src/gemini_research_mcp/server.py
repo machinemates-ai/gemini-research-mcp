@@ -25,10 +25,12 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any
+from typing import Annotated
 
+from fastmcp import Context, FastMCP
+
+# Raw MCP types and experimental task support
 from mcp.server.experimental.task_support import TaskSupport
-from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import (
     BlobResourceContents,
     EmbeddedResource,
@@ -444,7 +446,7 @@ class ClarificationSchema(BaseModel):
 
 async def _maybe_clarify_query(
     query: str,
-    ctx: Context[Any, Any, Any] | None,
+    ctx: Context | None,
 ) -> str:
     """
     Analyze query and optionally ask clarifying questions via ctx.elicit().
@@ -528,7 +530,7 @@ async def _maybe_clarify_query(
 
         result = await ctx.elicit(
             message=message,
-            schema=DynamicSchema,
+            response_type=DynamicSchema,
         )
 
         if result.action == "accept" and result.data:
@@ -577,7 +579,7 @@ async def research_deep(
         bool,
         "If True, run automatic critique cycle and append refinements to fill gaps",
     ] = False,
-    ctx: Context[Any, Any, Any] | None = None,
+    ctx: Context | None = None,
 ) -> str:
     """
     Comprehensive autonomous research agent. Takes 3-20 minutes.
@@ -864,7 +866,7 @@ async def research_deep_planned(
         str | None,
         "Optional report format (e.g., 'executive briefing', 'comparison table')",
     ] = None,
-    ctx: Context[Any, Any, Any] | None = None,
+    ctx: Context | None = None,
 ) -> str:
     """
     Deep research with explicit plan approval step before execution.
@@ -938,7 +940,7 @@ async def research_deep_planned(
 
             result = await ctx.elicit(
                 message=message,
-                schema=PlanApproval,
+                response_type=PlanApproval,  # type: ignore[arg-type]
             )
 
             if result.action == "cancel":
@@ -968,11 +970,12 @@ async def research_deep_planned(
     )
 
     # Use the research_deep function directly
-    return await research_deep(  # type: ignore[no-any-return]
+    deep_result: str = await research_deep.fn(
         query=query,
         format_instructions=combined_instructions,
         ctx=ctx,
     )
+    return deep_result
 
 
 # =============================================================================
@@ -1206,7 +1209,7 @@ async def resume_research(
         str | None,
         "Optional: specific interaction_id to resume. If not provided, shows resumable sessions.",
     ] = None,
-    ctx: Context[Any, Any, Any] | None = None,
+    ctx: Context | None = None,
 ) -> str:
     """
     Resume interrupted or in-progress research sessions.
