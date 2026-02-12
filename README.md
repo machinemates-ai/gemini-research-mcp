@@ -8,57 +8,7 @@ MCP server for AI-powered research using **Gemini**. Fast grounded search + comp
 
 ## Architecture
 
-```mermaid
-flowchart TB
-    subgraph Client["MCP Client"]
-        Claude["Claude / Copilot"]
-    end
-
-    subgraph Server["gemini-research-mcp"]
-        direction TB
-        FastMCP["FastMCP Server<br/>@mcp.tool()"]
-        
-        subgraph Tools["Tools"]
-            RW["research_web<br/>Quick lookup 5-30s"]
-            RD["research_deep<br/>Autonomous 3-20min"]
-            RF["research_followup<br/>Continue session"]
-            RR["resume_research<br/>Recover interrupted"]
-            FW["fetch_webpage<br/>Content extraction"]
-            EX["export_research_session<br/>MD/JSON/DOCX"]
-            LS["list_research_sessions"]
-        end
-
-        subgraph Modules["Core Modules"]
-            Quick["quick.py<br/>Web grounding"]
-            Deep["deep.py<br/>Deep research agent"]
-            Content["content.py<br/>SSRF protection"]
-            Sessions["sessions.py<br/>Session manager"]
-        end
-    end
-
-    subgraph External["External Services"]
-        Gemini["Google Gemini API<br/>2.0 Flash"]
-        Web["Web Sources<br/>via trafilatura"]
-    end
-
-    subgraph Storage["Persistence"]
-        SQLite["SQLite<br/>~/.gemini-research/"]
-    end
-
-    Claude -->|"MCP Protocol"| FastMCP
-    FastMCP --> Tools
-    
-    RW --> Quick
-    RD --> Deep
-    RF --> Sessions
-    RR --> Sessions
-    FW --> Content
-    
-    Quick -->|"grounding"| Gemini
-    Deep -->|"agentic"| Gemini
-    Content -->|"httpx"| Web
-    Sessions --> SQLite
-```
+![Architecture](https://raw.githubusercontent.com/machinemates-ai/gemini-research-mcp/main/docs/architecture.png)
 
 ## Tools
 
@@ -74,7 +24,7 @@ flowchart TB
 
 ### Power User Workflow
 
-[![Power User Workflow](https://raw.githubusercontent.com/MachineMates-AI/gemini-research-mcp/main/docs/workflow.svg)](docs/workflow.svg)
+[![Power User Workflow](https://raw.githubusercontent.com/machinemates-ai/gemini-research-mcp/main/docs/workflow-elk.png)](https://github.com/machinemates-ai/gemini-research-mcp/blob/main/docs/workflow-elk.svg)
 
 > **Key insight**: Gemini Deep Research runs asynchronously on Google's servers. Even if VS Code disconnects, your research continues. The `resume_research` tool retrieves completed work.
 
