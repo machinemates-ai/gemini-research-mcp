@@ -8,6 +8,11 @@ MCP server for AI-powered research using **Gemini**. Fast grounded search + comp
 
 ## Architecture
 
+![Architecture](https://raw.githubusercontent.com/machinemates-ai/gemini-research-mcp/main/docs/architecture.png)
+
+<details>
+<summary>Mermaid source</summary>
+
 ```mermaid
 flowchart TB
     subgraph Client["MCP Client"]
@@ -64,6 +69,8 @@ flowchart TB
     Content -->|"httpx"| Web
     Sessions --> SQLite
 ```
+
+</details>
 
 ## Tools
 
