@@ -69,7 +69,7 @@ class TestMCPToolRegistration:
             "research_deep",
             "research_deep_planned",
             "list_format_templates",
-            "list_research_sessions_tool",
+            "list_research_sessions",
             "export_research_session",
             "research_followup",
             "resume_research",
