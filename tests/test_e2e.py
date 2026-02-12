@@ -199,7 +199,6 @@ class TestMCPToolsE2E:
         result = await research_web(
             query="What is FastMCP?",
             include_thoughts=False,
-            thinking_level="minimal",
         )
 
         assert result, "Should return result string"

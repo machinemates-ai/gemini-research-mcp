@@ -71,7 +71,7 @@ class TestResearchFollowupSessionMatching:
 
         with (
             patch(
-                "gemini_research_mcp.server.list_research_sessions"
+                "gemini_research_mcp.server._list_sessions"
             ) as mock_list,
             patch(
                 "gemini_research_mcp.server._research_followup",
@@ -106,7 +106,7 @@ class TestResearchFollowupSessionMatching:
 
         with (
             patch(
-                "gemini_research_mcp.server.list_research_sessions",
+                "gemini_research_mcp.server._list_sessions",
                 return_value=sessions,
             ),
             patch(
@@ -145,7 +145,7 @@ class TestResearchFollowupSessionMatching:
 
         with (
             patch(
-                "gemini_research_mcp.server.list_research_sessions",
+                "gemini_research_mcp.server._list_sessions",
                 return_value=sessions,
             ),
             patch(
@@ -174,7 +174,7 @@ class TestResearchFollowupSessionMatching:
         from gemini_research_mcp.server import research_followup
 
         with patch(
-            "gemini_research_mcp.server.list_research_sessions",
+            "gemini_research_mcp.server._list_sessions",
             return_value=[],
         ):
             result = await research_followup(query="Elaborate on this")
@@ -229,7 +229,7 @@ class TestExportSessionMatching:
 
         with (
             patch(
-                "gemini_research_mcp.server.list_research_sessions",
+                "gemini_research_mcp.server._list_sessions",
                 return_value=sessions,
             ),
             patch(
@@ -265,7 +265,7 @@ class TestExportSessionMatching:
 
         with (
             patch(
-                "gemini_research_mcp.server.list_research_sessions",
+                "gemini_research_mcp.server._list_sessions",
                 return_value=sessions,
             ),
             patch(
@@ -298,7 +298,7 @@ class TestExportSessionMatching:
         sessions = [recent_session, quantum_session]
 
         with patch(
-            "gemini_research_mcp.server.list_research_sessions",
+            "gemini_research_mcp.server._list_sessions",
             return_value=sessions,
         ):
             result = await export_research_session(format="json")
@@ -315,7 +315,7 @@ class TestExportSessionMatching:
         from gemini_research_mcp.server import export_research_session
 
         with patch(
-            "gemini_research_mcp.server.list_research_sessions",
+            "gemini_research_mcp.server._list_sessions",
             return_value=[],
         ):
             result = await export_research_session(format="json")
@@ -372,7 +372,7 @@ class TestSessionMatchingConsistency:
 
         with (
             patch(
-                "gemini_research_mcp.server.list_research_sessions",
+                "gemini_research_mcp.server._list_sessions",
                 return_value=sessions,
             ),
             patch(

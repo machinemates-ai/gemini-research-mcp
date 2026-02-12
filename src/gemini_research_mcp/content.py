@@ -117,7 +117,7 @@ def validate_url(url: str) -> tuple[bool, str]:
 # =============================================================================
 
 # HTTP client configuration
-DEFAULT_TIMEOUT = 15.0
+FETCH_TIMEOUT = 15.0
 MAX_RESPONSE_SIZE = 10 * 1024 * 1024  # 10MB max
 
 # User agent for web requests
@@ -167,7 +167,7 @@ async def fetch_webpage(url: str) -> FetchResult:
     # Fetch the page
     try:
         async with httpx.AsyncClient(
-            timeout=DEFAULT_TIMEOUT,
+            timeout=FETCH_TIMEOUT,
             follow_redirects=True,
             headers={"User-Agent": USER_AGENT},
         ) as client:
@@ -195,7 +195,7 @@ async def fetch_webpage(url: str) -> FetchResult:
             title=None,
             content="",
             word_count=0,
-            error=f"Timeout after {DEFAULT_TIMEOUT}s",
+            error=f"Timeout after {FETCH_TIMEOUT}s",
         )
     except httpx.HTTPStatusError as e:
         logger.warning("   ❌ HTTP error: %s", e)

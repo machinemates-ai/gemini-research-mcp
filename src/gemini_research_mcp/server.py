@@ -25,10 +25,13 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any
+from typing import Annotated
 
+from fastmcp import Context, FastMCP
+from fastmcp.server.tasks.config import TaskConfig
+
+# Raw MCP types and experimental task support
 from mcp.server.experimental.task_support import TaskSupport
-from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import (
     BlobResourceContents,
     EmbeddedResource,
@@ -62,7 +65,7 @@ from gemini_research_mcp.quick import (
 from gemini_research_mcp.storage import (
     ResearchStatus,
     get_research_session,
-    list_research_sessions,
+    list_research_sessions as _list_sessions,
     list_resumable_sessions,
     save_research_session,
     update_research_session,
@@ -234,7 +237,7 @@ Use for: sharing reports, archiving research, creating deliverables.
 - Complex questions → research_deep
 - Read a URL → fetch_webpage
 - VS Code disconnected during research? → resume_research
-- "What did I research about X?" → list_research_sessions_tool
+- "What did I research about X?" → list_research_sessions
 - Continue old research → research_followup (auto-matches session)
 - Export for sharing → export_research_session
 """,
@@ -298,7 +301,7 @@ def _format_deep_research_report(
 # =============================================================================
 
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True))
 async def research_web(
     query: Annotated[str, "Search query or question to research on the web"],
     include_thoughts: Annotated[bool, "Include thinking summary in response"] = False,
@@ -374,7 +377,7 @@ async def research_web(
 # =============================================================================
 
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True, idempotentHint=True))
 async def fetch_webpage(
     url: Annotated[str, "URL of the webpage to fetch and extract content from"],
 ) -> str:
@@ -444,7 +447,7 @@ class ClarificationSchema(BaseModel):
 
 async def _maybe_clarify_query(
     query: str,
-    ctx: Context[Any, Any, Any] | None,
+    ctx: Context | None,
 ) -> str:
     """
     Analyze query and optionally ask clarifying questions via ctx.elicit().
@@ -528,7 +531,7 @@ async def _maybe_clarify_query(
 
         result = await ctx.elicit(
             message=message,
-            schema=DynamicSchema,
+            response_type=DynamicSchema,
         )
 
         if result.action == "accept" and result.data:
@@ -562,7 +565,7 @@ async def _maybe_clarify_query(
 # =============================================================================
 
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True), task=TaskConfig(mode="required"))
 async def research_deep(
     query: Annotated[str, "Research question or topic to investigate thoroughly"],
     format_instructions: Annotated[
@@ -577,7 +580,7 @@ async def research_deep(
         bool,
         "If True, run automatic critique cycle and append refinements to fill gaps",
     ] = False,
-    ctx: Context[Any, Any, Any] | None = None,
+    ctx: Context | None = None,
 ) -> str:
     """
     Comprehensive autonomous research agent. Takes 3-20 minutes.
@@ -857,14 +860,14 @@ async def research_deep(
 # =============================================================================
 
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True), task=TaskConfig(mode="required"))
 async def research_deep_planned(
     query: Annotated[str, "Research question or topic to investigate thoroughly"],
     format_instructions: Annotated[
         str | None,
         "Optional report format (e.g., 'executive briefing', 'comparison table')",
     ] = None,
-    ctx: Context[Any, Any, Any] | None = None,
+    ctx: Context | None = None,
 ) -> str:
     """
     Deep research with explicit plan approval step before execution.
@@ -938,7 +941,7 @@ async def research_deep_planned(
 
             result = await ctx.elicit(
                 message=message,
-                schema=PlanApproval,
+                response_type=PlanApproval,  # type: ignore[arg-type]
             )
 
             if result.action == "cancel":
@@ -967,8 +970,9 @@ async def research_deep_planned(
         + (f"\n\nAdditional formatting:\n{format_instructions}" if format_instructions else "")
     )
 
-    # Use the research_deep function directly
-    return await research_deep(  # type: ignore[no-any-return]
+    # Call research_deep directly (fastmcp decorator preserves the original function)
+    # Note: mypy thinks @mcp.tool returns FunctionTool but at runtime it's the original function
+    return await research_deep(  # type: ignore[operator, no-any-return]
         query=query,
         format_instructions=combined_instructions,
         ctx=ctx,
@@ -980,7 +984,7 @@ async def research_deep_planned(
 # =============================================================================
 
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))
 async def list_format_templates(
     category: Annotated[
         str | None,
@@ -1045,7 +1049,7 @@ async def list_format_templates(
     }, indent=2)
 
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True))
 async def research_followup(
     query: Annotated[
         str, "Follow-up question about previous research (e.g., 'elaborate on surface codes')"
@@ -1081,7 +1085,7 @@ async def research_followup(
         # If no interaction_id provided, find the best matching session
         previous_interaction_id = interaction_id
         if not previous_interaction_id:
-            sessions = list_research_sessions(limit=20, include_expired=False)
+            sessions = _list_sessions(limit=20, include_expired=False)
             if not sessions:
                 return "❌ No research sessions found. Complete a deep research first."
 
@@ -1139,8 +1143,8 @@ async def research_followup(
         return f"❌ Follow-up failed: {e}"
 
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-async def list_research_sessions_tool(
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))
+async def list_research_sessions(
     limit: Annotated[int, "Maximum number of sessions to return"] = 20,
     include_expired: Annotated[bool, "Include expired sessions"] = False,
 ) -> str:
@@ -1159,7 +1163,7 @@ async def list_research_sessions_tool(
     """
     logger.info("📋 list_research_sessions: limit=%d, include_expired=%s", limit, include_expired)
 
-    sessions = list_research_sessions(limit=limit, include_expired=include_expired)
+    sessions = _list_sessions(limit=limit, include_expired=include_expired)
 
     if not sessions:
         return json.dumps({"sessions": [], "message": "No research sessions found."})
@@ -1200,13 +1204,13 @@ async def list_research_sessions_tool(
     )
 
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True))
 async def resume_research(
     interaction_id: Annotated[
         str | None,
         "Optional: specific interaction_id to resume. If not provided, shows resumable sessions.",
     ] = None,
-    ctx: Context[Any, Any, Any] | None = None,
+    ctx: Context | None = None,
 ) -> str:
     """
     Resume interrupted or in-progress research sessions.
@@ -1362,7 +1366,7 @@ async def resume_research(
         return json.dumps({"error": f"Resume failed: {e}"})
 
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))
 async def export_research_session(
     interaction_id: Annotated[
         str | None,
@@ -1417,7 +1421,7 @@ async def export_research_session(
 
         # Find session by query using AI-powered semantic matching
         elif query:
-            sessions = list_research_sessions(limit=20, include_expired=False)
+            sessions = _list_sessions(limit=20, include_expired=False)
             if not sessions:
                 return json.dumps({
                     "error": "No research sessions found.",
@@ -1461,7 +1465,7 @@ async def export_research_session(
 
         # Default to most recent session
         else:
-            sessions = list_research_sessions(limit=1)
+            sessions = _list_sessions(limit=1)
             if not sessions:
                 return json.dumps({
                     "error": "No research sessions found.",
