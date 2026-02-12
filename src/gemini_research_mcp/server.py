@@ -565,7 +565,7 @@ async def _maybe_clarify_query(
 # =============================================================================
 
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True), task=TaskConfig(mode="required"))
 async def research_deep(
     query: Annotated[str, "Research question or topic to investigate thoroughly"],
     format_instructions: Annotated[
@@ -860,7 +860,7 @@ async def research_deep(
 # =============================================================================
 
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True), task=TaskConfig(mode="required"))
 async def research_deep_planned(
     query: Annotated[str, "Research question or topic to investigate thoroughly"],
     format_instructions: Annotated[
@@ -977,25 +977,6 @@ async def research_deep_planned(
         format_instructions=combined_instructions,
         ctx=ctx,
     )
-
-
-def _configure_task_metadata() -> None:
-    """Mark deep research tools as task-capable in MCP metadata.
-
-    Uses metadata-only configuration to avoid a hard import-time dependency on
-    ``fastmcp[tasks]`` while still advertising optional task support.
-    """
-    local_provider = getattr(mcp, "_local_provider", None)
-    components = getattr(local_provider, "_components", None)
-    if not isinstance(components, dict):
-        return
-
-    for component in components.values():
-        if getattr(component, "name", None) in {"research_deep", "research_deep_planned"}:
-            component.task_config = TaskConfig(mode="optional")
-
-
-_configure_task_metadata()
 
 
 # =============================================================================

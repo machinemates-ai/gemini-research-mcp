@@ -34,13 +34,12 @@ classifiers = [
 ]
 dependencies = [
     "google-genai>=1.60.0",
-    # FastMCP with background task support (merged to main, pending official release)
-    # Switch back to PyPI release once fastmcp publishes a new version with background tasks
-    "fastmcp @ git+https://github.com/jlowin/fastmcp.git@main",
+    # FastMCP 3.0 RC1 with background task support (SEP-1686)
+    "fastmcp[tasks]>=3.0.0rc1",
     "httpx>=0.28.1",
     "python-dotenv>=1.2.1",
     # Persistent storage using industry-standard key-value interface (used by FastMCP, agentpool, etc.)
-    "py-key-value-aio[disk]>=0.3.0",
+    "py-key-value-aio[disk]>=0.4.0,<0.5.0",
     # XDG-compliant platform-specific directories
     "platformdirs>=4.5.1",
 ]
@@ -90,8 +89,6 @@ build-backend = "hatchling.build"
 source = "vcs"
 
 [tool.hatch.metadata]
-# Allow git+ references for dependencies (needed for fork while waiting for upstream PR merge)
-allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gemini_research_mcp"]
@@ -115,3 +112,4 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
