@@ -24,7 +24,7 @@ MCP server for AI-powered research using **Gemini**. Fast grounded search + comp
 
 ### Power User Workflow
 
-[![Power User Workflow](https://raw.githubusercontent.com/machinemates-ai/gemini-research-mcp/main/docs/workflow-elk.png)](https://github.com/machinemates-ai/gemini-research-mcp/blob/main/docs/workflow-elk.svg)
+[![Engineer Workflow](https://raw.githubusercontent.com/machinemates-ai/gemini-research-mcp/main/docs/workflow-engineer.svg)](https://github.com/machinemates-ai/gemini-research-mcp/blob/main/docs/workflow-engineer.svg)
 
 > **Key insight**: Gemini Deep Research runs asynchronously on Google's servers. Even if VS Code disconnects, your research continues. The `resume_research` tool retrieves completed work.
 
