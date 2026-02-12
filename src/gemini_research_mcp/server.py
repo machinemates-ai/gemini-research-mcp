@@ -65,10 +65,12 @@ from gemini_research_mcp.quick import (
 from gemini_research_mcp.storage import (
     ResearchStatus,
     get_research_session,
-    list_research_sessions as _list_sessions,
     list_resumable_sessions,
     save_research_session,
     update_research_session,
+)
+from gemini_research_mcp.storage import (
+    list_research_sessions as _list_sessions,
 )
 from gemini_research_mcp.types import DeepResearchError, DeepResearchResult
 
@@ -565,7 +567,10 @@ async def _maybe_clarify_query(
 # =============================================================================
 
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True), task=TaskConfig(mode="required"))
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+    task=TaskConfig(mode="required"),
+)
 async def research_deep(
     query: Annotated[str, "Research question or topic to investigate thoroughly"],
     format_instructions: Annotated[
@@ -860,7 +865,10 @@ async def research_deep(
 # =============================================================================
 
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True), task=TaskConfig(mode="required"))
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+    task=TaskConfig(mode="required"),
+)
 async def research_deep_planned(
     query: Annotated[str, "Research question or topic to investigate thoroughly"],
     format_instructions: Annotated[
