@@ -647,6 +647,11 @@ def get_research_session(interaction_id: str) -> ResearchSession | None:
     return get_storage().get_session(interaction_id)
 
 
+def delete_research_session(interaction_id: str) -> bool:
+    """Delete a research session by interaction_id."""
+    return get_storage().delete_session(interaction_id)
+
+
 def list_research_sessions(
     *,
     include_expired: bool = False,

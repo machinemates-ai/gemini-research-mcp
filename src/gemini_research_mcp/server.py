@@ -64,6 +64,7 @@ from gemini_research_mcp.quick import (
 )
 from gemini_research_mcp.storage import (
     ResearchStatus,
+    delete_research_session,
     get_research_session,
     list_resumable_sessions,
     save_research_session,
@@ -163,18 +164,10 @@ async def lifespan(app: FastMCP) -> AsyncIterator[None]:
     try:
         resumable = list_resumable_sessions(limit=10)
         if resumable:
-            logger.info("=" * 60)
-            logger.info("🔄 RESUMABLE SESSIONS FOUND (%d)", len(resumable))
-            for session in resumable:
-                status_emoji = "⏳" if session.status == ResearchStatus.IN_PROGRESS else "⚠️"
-                logger.info(
-                    "   %s [%s] %s",
-                    status_emoji,
-                    session.interaction_id[:12],
-                    session.query[:60],
-                )
-            logger.info("   💡 Use resume_research tool to recover these sessions")
-            logger.info("=" * 60)
+            logger.info(
+                "🔄 %d resumable session(s) — use resume_research to recover",
+                len(resumable),
+            )
     except Exception as e:
         logger.warning("Failed to check for resumable sessions: %s", e)
 
@@ -1347,7 +1340,21 @@ async def resume_research(
                 })
 
             else:
-                # Still in progress
+                # Still in progress — check if stale (>24h)
+                age_hours = (time.time() - session.created_at) / 3600
+                if age_hours > 24:
+                    delete_research_session(interaction_id)
+                    logger.info(
+                        "🗑️ Deleted stale session %s (%.0fh old)",
+                        interaction_id[:12],
+                        age_hours,
+                    )
+                    return json.dumps({
+                        "status": "deleted_stale",
+                        "message": f"Session deleted — stuck in progress for {age_hours:.0f}h.",
+                        "query": session.query[:100],
+                    })
+
                 return json.dumps({
                     "status": "still_in_progress",
                     "gemini_status": raw_status,
@@ -1357,6 +1364,20 @@ async def resume_research(
                 })
 
         except Exception as api_error:
+            error_str = str(api_error).lower()
+            # If Gemini says not found / gone, delete local session
+            if "not_found" in error_str or "404" in error_str:
+                delete_research_session(interaction_id)
+                logger.info(
+                    "🗑️ Deleted session %s — no longer exists on Gemini",
+                    interaction_id[:12],
+                )
+                return json.dumps({
+                    "status": "deleted_not_found",
+                    "message": "Session no longer exists on Gemini — deleted locally.",
+                    "query": session.query[:100],
+                })
+
             logger.warning("Failed to check Gemini status: %s", api_error)
             # Mark as interrupted if we can't reach Gemini
             update_research_session(
