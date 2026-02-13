@@ -229,3 +229,31 @@ class TestMCPToolsE2E:
         start_event = events[0]
         assert start_event.event_type == "start", "First event should be 'start'"
         assert start_event.interaction_id, "Start event should have interaction_id"
+
+    @pytest.mark.asyncio
+    @pytest.mark.e2e
+    async def test_resume_research_fake_id_returns_not_found(self):
+        """resume_research with a fake interaction_id should return not_found."""
+        import json
+
+        from gemini_research_mcp.server import resume_research
+
+        result = await resume_research(interaction_id="fake-nonexistent-id-12345")
+        data = json.loads(result)
+
+        assert data["status"] == "not_found"
+        assert "fake-nonexistent-id-12345" in data["message"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.e2e
+    async def test_resume_research_no_id_lists_sessions(self):
+        """resume_research without interaction_id should list or show empty."""
+        import json
+
+        from gemini_research_mcp.server import resume_research
+
+        result = await resume_research()
+        data = json.loads(result)
+
+        # Should be either resumable_sessions_found or no_resumable_sessions
+        assert data["status"] in ("resumable_sessions_found", "no_resumable_sessions")
