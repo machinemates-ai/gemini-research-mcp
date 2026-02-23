@@ -58,7 +58,7 @@ async def critique_research(
     query: str,
     report: str,
     *,
-    model: str = "gemini-3-pro-preview",
+    model: str = "gemini-3.1-pro-preview",
 ) -> CritiqueResult:
     """
     Evaluate research quality and identify gaps.
@@ -1103,7 +1103,7 @@ async def research_followup(
     previous_interaction_id: str,
     query: str,
     *,
-    model: str = "gemini-3-pro-preview",
+    model: str = "gemini-3.1-pro-preview",
 ) -> str:
     """
     Ask a follow-up question about a completed Deep Research task.
@@ -1116,7 +1116,7 @@ async def research_followup(
         previous_interaction_id: Interaction ID from a completed research task
                                  (available as result.interaction_id from research_deep)
         query: The follow-up question
-        model: Model to use for the follow-up. Default: "gemini-3-pro-preview"
+        model: Model to use for the follow-up. Default: "gemini-3.1-pro-preview"
 
     Returns:
         The text response to the follow-up question

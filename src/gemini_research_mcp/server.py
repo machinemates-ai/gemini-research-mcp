@@ -972,8 +972,7 @@ async def research_deep_planned(
     )
 
     # Call research_deep directly (fastmcp decorator preserves the original function)
-    # Note: mypy thinks @mcp.tool returns FunctionTool but at runtime it's the original function
-    return await research_deep(  # type: ignore[operator, no-any-return]
+    return await research_deep(
         query=query,
         format_instructions=combined_instructions,
         ctx=ctx,
@@ -1060,8 +1059,8 @@ async def research_followup(
         "Optional: specific interaction_id. If not provided, auto-matches from sessions.",
     ] = None,
     model: Annotated[
-        str, "Model to use for follow-up. Default: gemini-3-pro-preview"
-    ] = "gemini-3-pro-preview",
+        str, "Model to use for follow-up. Default: gemini-3.1-pro-preview"
+    ] = "gemini-3.1-pro-preview",
 ) -> str:
     """
     Continue conversation after deep research. Ask follow-up questions without restarting.
@@ -1075,7 +1074,7 @@ async def research_followup(
     Args:
         query: Your follow-up question
         interaction_id: Optional specific session ID (from list_research_sessions)
-        model: Model to use (default: gemini-3-pro-preview)
+        model: Model to use (default: gemini-3.1-pro-preview)
 
     Returns:
         Response to the follow-up question
@@ -1610,7 +1609,7 @@ def get_research_models() -> str:
 
 ## Follow-up (research_followup)
 
-**Model:** Configurable (default: gemini-3-pro-preview)
+**Model:** Configurable (default: gemini-3.1-pro-preview)
 - **Latency:** 5-30 seconds
 - **API:** Gemini Interactions API
 - **Best for:** Clarification, elaboration, summarization of prior research
