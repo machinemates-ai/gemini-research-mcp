@@ -748,22 +748,12 @@ for completeness and quality.
 {report}
 
 **Your Task:**
-1. Identify any significant gaps, missing information, or areas that need elaboration
-2. Rate the report quality: PASS (comprehensive) or NEEDS_REFINEMENT (has gaps)
-3. If NEEDS_REFINEMENT, provide 2-4 specific follow-up questions to fill the gaps
-
-**Output Format:**
-```
-RATING: [PASS or NEEDS_REFINEMENT]
-
-GAPS IDENTIFIED:
-- [Gap 1]
-- [Gap 2]
-
-FOLLOW_UP_QUESTIONS:
-1. [Specific question to address gap 1]
-2. [Specific question to address gap 2]
-```
+1. Decide if the report is complete enough to answer the original query.
+2. Set grade to:
+    - pass: report is sufficiently complete and accurate
+    - fail: report has material gaps, ambiguity, or missing evidence
+3. Write a concise comment summarizing key strengths/weaknesses.
+4. If grade is fail, provide 2-4 targeted follow_up_queries that would close the gaps.
 
 Be constructive and specific. Focus on substantive gaps, not stylistic preferences.
 """

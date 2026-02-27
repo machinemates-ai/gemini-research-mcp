@@ -84,7 +84,25 @@ flowchart TB
 | `list_research_sessions` | List saved research sessions | instant |
 | `list_format_templates` | Browse report format templates | instant |
 | `export_research_session` | Export to Markdown, JSON, or DOCX | instant |
-| `fetch_webpage` | Extract article content (SSRF-protected) | 0.5-2 sec |
+| `fetch_webpage` | Extract article content (SSRF-protected, robots-aware, chunkable) | 0.5-2 sec |
+
+### `fetch_webpage` Parameters
+
+The `fetch_webpage` tool supports chunked reading for large pages and optional proxy routing:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `url` | string | required | HTTP/HTTPS URL to fetch |
+| `max_length` | integer \| null | `null` | Maximum characters to return (chunk size) |
+| `start_index` | integer | `0` | Character offset for pagination |
+| `proxy_url` | string \| null | `null` | Optional HTTP(S) proxy URL for the request |
+
+Notes:
+- SSRF protection is always applied (private/internal hosts are blocked).
+- `robots.txt` is checked before fetch when `protego` is installed.
+- When output is truncated, the response includes a continuation hint with next `start_index`.
+- If `proxy_url` is omitted, the server falls back to `FETCH_PROXY_URL` when set.
+- `proxy_url` must be a public HTTP(S) host (private/internal proxy hosts are blocked).
 
 ### Power User Workflow
 
@@ -100,6 +118,8 @@ flowchart TB
 - **Export Formats**: Export to Markdown, JSON, or professional DOCX with Table of Contents
 - **File Search**: Search your own data alongside web using `file_search_store_names`
 - **Format Instructions**: Control report structure (sections, tables, tone)
+- **Structured Critique**: Auto-refine uses strict JSON schema (`grade`, `comment`, `follow_up_queries`)
+- **Structured Grounded Fact-Check**: Grounded mode uses strict JSON schema (`grade`, `comment`, `claims_verified`, `claims_disputed`, `sources`)
 
 ## Installation
 
@@ -125,6 +145,7 @@ The bundle uses UV runtime - dependencies are installed automatically, no Python
 | `GEMINI_MODEL` | No | `gemini-3-flash-preview` | Model for `research_web` |
 | `GEMINI_SUMMARY_MODEL` | No | `gemini-3-flash-preview` | Model for session summaries (fast) |
 | `DEEP_RESEARCH_AGENT` | No | `deep-research-pro-preview-12-2025` | Agent for `research_deep` |
+| `FETCH_PROXY_URL` | No | — | Default HTTP(S) proxy for `fetch_webpage` |
 
 ```bash
 cp .env.example .env
@@ -132,6 +153,51 @@ cp .env.example .env
 ```
 
 ## Usage
+
+### Structured Critique Schema
+
+When `auto_refine` is enabled, the evaluator returns structured feedback:
+
+```json
+{
+  "grade": "pass | fail",
+  "comment": "Concise quality assessment",
+  "follow_up_queries": [
+    "Targeted follow-up question 1",
+    "Targeted follow-up question 2"
+  ]
+}
+```
+
+The server runs an iterative refinement loop (up to 5 iterations): evaluate → run follow-ups → re-evaluate.
+
+### Structured Grounded Fact-Check Schema
+
+When grounded fact-checking is enabled, the validator returns:
+
+```json
+{
+  "grade": "verified | partially_verified | disputed | insufficient_data",
+  "comment": "Fact-check summary",
+  "claims_verified": ["..."],
+  "claims_disputed": ["..."],
+  "sources": ["https://..."]
+}
+```
+
+This result is appended to the final report under the `Fact-Check (Grounded)` section.
+
+### Breaking Changes
+
+The critique model is intentionally **not backward compatible**:
+
+- `CritiqueResult` was replaced by `Feedback`
+- `GroundedCritiqueResult` was replaced by `GroundedFeedback`
+- `rating` → `grade`
+- `follow_up_questions` → `follow_up_queries`
+- `fact_check_rating` → `grade` (grounded)
+
+If you consume Python APIs directly, update imports/field names accordingly.
 
 ### VS Code MCP
 

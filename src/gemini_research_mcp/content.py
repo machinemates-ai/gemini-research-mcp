@@ -9,8 +9,10 @@ Security: Blocks requests to private IPs, localhost, and cloud metadata endpoint
 
 import ipaddress
 import logging
+import os
 import socket
 from dataclasses import dataclass
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -52,6 +54,9 @@ BLOCKED_PREFIXES: tuple[str, ...] = (
 )
 
 
+NAT64_WELL_KNOWN_PREFIX = ipaddress.ip_network("64:ff9b::/96")
+
+
 def is_private_ip(host: str) -> bool:
     """Check if a host resolves to a private IP address."""
     # Check blocked hosts first
@@ -70,7 +75,9 @@ def is_private_ip(host: str) -> bool:
             ip_str = addr_info[4][0]
             try:
                 ip = ipaddress.ip_address(ip_str)
-                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                if ip.is_private or ip.is_loopback or ip.is_link_local:
+                    return True
+                if ip.is_reserved and not (ip.version == 6 and ip in NAT64_WELL_KNOWN_PREFIX):
                     return True
             except ValueError:
                 continue
@@ -112,6 +119,18 @@ def validate_url(url: str) -> tuple[bool, str]:
     return True, ""
 
 
+def validate_proxy_url(proxy_url: str) -> tuple[bool, str]:
+    """Validate outbound proxy URL with SSRF safeguards.
+
+    Proxies are network pivots; allowing private/internal proxies can bypass
+    URL-level SSRF checks. We therefore apply the same host validation rules.
+    """
+    is_valid, error_msg = validate_url(proxy_url)
+    if not is_valid:
+        return False, f"Invalid proxy_url: {error_msg}"
+    return True, ""
+
+
 # =============================================================================
 # Content Extraction
 # =============================================================================
@@ -124,6 +143,10 @@ MAX_RESPONSE_SIZE = 10 * 1024 * 1024  # 10MB max
 USER_AGENT = (
     "Mozilla/5.0 (compatible; GeminiResearchBot/1.0; +https://github.com/machinemates-ai/gemini-research-mcp)"
 )
+ROBOTS_TIMEOUT = 5.0
+
+# robots.txt cache by origin, value is parsed Protego object or None (allow by fallback)
+_ROBOTS_CACHE: dict[str, Any | None] = {}
 
 
 @dataclass
@@ -134,10 +157,89 @@ class FetchResult:
     title: str | None
     content: str
     word_count: int
+    is_truncated: bool = False
+    total_content_length: int = 0
     error: str | None = None
 
 
-async def fetch_webpage(url: str) -> FetchResult:
+async def check_robots_txt(
+    url: str,
+    *,
+    user_agent: str = USER_AGENT,
+    proxy_url: str | None = None,
+) -> bool:
+    """Return True when robots.txt allows autonomous fetching for the URL."""
+    parsed = urlparse(url)
+    if not parsed.scheme or not parsed.netloc:
+        return True
+
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+
+    if origin in _ROBOTS_CACHE:
+        parser = _ROBOTS_CACHE[origin]
+        if parser is None:
+            return True
+        try:
+            return bool(parser.can_fetch(url, user_agent))
+        except TypeError:
+            return bool(parser.can_fetch(user_agent, url))
+
+    try:
+        from protego import Protego  # type: ignore[import-not-found]
+    except ImportError:
+        logger.info("   ℹ️ protego not installed, skipping robots.txt check")
+        _ROBOTS_CACHE[origin] = None
+        return True
+
+    robots_url = f"{origin}/robots.txt"
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=ROBOTS_TIMEOUT,
+            follow_redirects=True,
+            headers={"User-Agent": user_agent},
+            proxy=proxy_url,
+        ) as client:
+            response = await client.get(robots_url)
+
+        if response.status_code >= 400:
+            _ROBOTS_CACHE[origin] = None
+            return True
+
+        parser = Protego.parse(response.text)
+        _ROBOTS_CACHE[origin] = parser
+
+        try:
+            return bool(parser.can_fetch(url, user_agent))
+        except TypeError:
+            return bool(parser.can_fetch(user_agent, url))
+    except Exception as e:
+        logger.info("   ℹ️ robots.txt unavailable (%s), allowing fetch", e)
+        _ROBOTS_CACHE[origin] = None
+        return True
+
+
+def _slice_content(content: str, start_index: int, max_length: int | None) -> tuple[str, bool, int]:
+    """Apply chunking to content and return (chunk, is_truncated, total_length)."""
+    total_length = len(content)
+    if start_index >= total_length:
+        return "", False, total_length
+
+    sliced = content[start_index:]
+    if max_length is None:
+        return sliced, False, total_length
+
+    end_index = start_index + max_length
+    return sliced[:max_length], end_index < total_length, total_length
+
+
+async def fetch_webpage(
+    url: str,
+    *,
+    max_length: int | None = None,
+    start_index: int = 0,
+    proxy_url: str | None = None,
+) -> FetchResult:
     """
     Fetch and extract content from a webpage as Markdown.
 
@@ -152,6 +254,37 @@ async def fetch_webpage(url: str) -> FetchResult:
     """
     logger.info("📥 Fetching: %s", url)
 
+    if start_index < 0:
+        return FetchResult(
+            url=url,
+            title=None,
+            content="",
+            word_count=0,
+            error="start_index must be >= 0",
+        )
+
+    if max_length is not None and max_length <= 0:
+        return FetchResult(
+            url=url,
+            title=None,
+            content="",
+            word_count=0,
+            error="max_length must be > 0 when provided",
+        )
+
+    effective_proxy_url = proxy_url or os.environ.get("FETCH_PROXY_URL")
+
+    if effective_proxy_url:
+        is_valid_proxy, proxy_error = validate_proxy_url(effective_proxy_url)
+        if not is_valid_proxy:
+            return FetchResult(
+                url=url,
+                title=None,
+                content="",
+                word_count=0,
+                error=proxy_error,
+            )
+
     # Validate URL for SSRF
     is_valid, error_msg = validate_url(url)
     if not is_valid:
@@ -164,12 +297,28 @@ async def fetch_webpage(url: str) -> FetchResult:
             error=error_msg,
         )
 
+    robots_allowed = await check_robots_txt(
+        url,
+        user_agent=USER_AGENT,
+        proxy_url=effective_proxy_url,
+    )
+    if not robots_allowed:
+        logger.warning("   ❌ Blocked by robots.txt: %s", url)
+        return FetchResult(
+            url=url,
+            title=None,
+            content="",
+            word_count=0,
+            error="Blocked by robots.txt",
+        )
+
     # Fetch the page
     try:
         async with httpx.AsyncClient(
             timeout=FETCH_TIMEOUT,
             follow_redirects=True,
             headers={"User-Agent": USER_AGENT},
+            proxy=effective_proxy_url,
         ) as client:
             response = await client.get(url)
             response.raise_for_status()
@@ -238,14 +387,22 @@ async def fetch_webpage(url: str) -> FetchResult:
             metadata = trafilatura.extract_metadata(html)
             title = metadata.title if metadata else None
 
-            word_count = len(extracted.split())
+            content, is_truncated, total_length = _slice_content(
+                extracted,
+                start_index=start_index,
+                max_length=max_length,
+            )
+
+            word_count = len(content.split())
             logger.info("   ✅ Extracted %d words via trafilatura", word_count)
 
             return FetchResult(
                 url=url,
                 title=title,
-                content=extracted,
+                content=content,
                 word_count=word_count,
+                is_truncated=is_truncated,
+                total_content_length=total_length,
             )
         else:
             logger.warning("   ⚠️ trafilatura returned empty, falling back")
@@ -298,6 +455,12 @@ async def fetch_webpage(url: str) -> FetchResult:
         while "\n\n\n" in content:
             content = content.replace("\n\n\n", "\n\n")
 
+        content, is_truncated, total_length = _slice_content(
+            content,
+            start_index=start_index,
+            max_length=max_length,
+        )
+
         word_count = len(content.split())
         logger.info("   ✅ Basic extraction: %d words", word_count)
 
@@ -306,6 +469,8 @@ async def fetch_webpage(url: str) -> FetchResult:
             title=parser.title,
             content=content,
             word_count=word_count,
+            is_truncated=is_truncated,
+            total_content_length=total_length,
         )
 
     except Exception as e:
@@ -319,4 +484,11 @@ async def fetch_webpage(url: str) -> FetchResult:
         )
 
 
-__all__ = ["fetch_webpage", "FetchResult", "validate_url", "is_private_ip"]
+__all__ = [
+    "fetch_webpage",
+    "check_robots_txt",
+    "FetchResult",
+    "validate_url",
+    "validate_proxy_url",
+    "is_private_ip",
+]

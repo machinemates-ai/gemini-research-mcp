@@ -293,25 +293,19 @@ def run_automated_validation():
         checks.append(("Elicit API", False))
         print(f"   ❌ Error: {e}")
     
-    # Check 5: TaskSupport
-    print("\n5. Checking TaskSupport...")
+    # Check 5: FastMCP Docket availability
+    print("\n5. Checking FastMCP Docket support...")
     try:
-        import asyncio
-        from gemini_research_mcp.server import mcp, lifespan
-        
-        async def check_task_support():
-            async with lifespan(mcp):
-                from gemini_research_mcp.server import _task_support
-                return _task_support is not None
-        
-        if asyncio.run(check_task_support()):
-            checks.append(("TaskSupport", True))
-            print("   ✅ TaskSupport initializes correctly")
+        from fastmcp.server.dependencies import is_docket_available
+
+        if is_docket_available():
+            checks.append(("Docket Support", True))
+            print("   ✅ pydocket is installed and available")
         else:
-            checks.append(("TaskSupport", False))
-            print("   ❌ TaskSupport is None")
+            checks.append(("Docket Support", False))
+            print("   ❌ pydocket is not available")
     except Exception as e:
-        checks.append(("TaskSupport", False))
+        checks.append(("Docket Support", False))
         print(f"   ❌ Error: {e}")
     
     # Summary

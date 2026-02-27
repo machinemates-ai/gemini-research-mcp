@@ -588,6 +588,7 @@ dependencies = [
 dev = [
     { name = "marko" },
     { name = "mypy" },
+    { name = "protego" },
     { name = "pygments" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -604,6 +605,7 @@ docx = [
     { name = "python-docx" },
 ]
 web = [
+    { name = "protego" },
     { name = "trafilatura" },
 ]
 
@@ -616,6 +618,8 @@ requires-dist = [
     { name = "marko", marker = "extra == 'docx'", specifier = ">=2.2.2" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10.0" },
     { name = "platformdirs", specifier = ">=4.5.1" },
+    { name = "protego", marker = "extra == 'dev'", specifier = ">=0.3.1" },
+    { name = "protego", marker = "extra == 'web'", specifier = ">=0.3.1" },
     { name = "py-key-value-aio", extras = ["disk"], specifier = ">=0.4.0,<0.5.0" },
     { name = "pygments", marker = "extra == 'dev'", specifier = ">=2.19.2" },
     { name = "pygments", marker = "extra == 'docx'", specifier = ">=2.19.2" },
@@ -1279,6 +1283,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f0/58/a794d23feb6b00fc0c72787d7e87d872a6730dd9ed7c7b3e954637d8f280/prometheus_client-0.24.1.tar.gz", hash = "sha256:7e0ced7fbbd40f7b84962d5d2ab6f17ef88a72504dcf7c0b40737b43b2a461f9", size = 85616, upload-time = "2026-01-14T15:26:26.965Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/74/c3/24a2f845e3917201628ecaba4f18bab4d18a337834c1df2a159ee9d22a42/prometheus_client-0.24.1-py3-none-any.whl", hash = "sha256:150db128af71a5c2482b36e588fc8a6b95e498750da4b17065947c16070f4055", size = 64057, upload-time = "2026-01-14T15:26:24.42Z" },
+]
+
+[[package]]
+name = "protego"
+version = "0.6.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/07/a7/955c422611d00a6e4a06d30b367ea9bb4fb09d48552e92aef1ba312493c7/protego-0.6.0.tar.gz", hash = "sha256:3466f41438421cf90008e98534d5fde47dc16a17482571d021143ac18b70ace9", size = 3137423, upload-time = "2026-01-29T10:58:28.267Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d8/8c/f4dd590f48addf31398f78a78962eaa99eb4c87ac09c1927497032644731/protego-0.6.0-py3-none-any.whl", hash = "sha256:7210e6e06a8db839502baf1bfbcb810689a58e394d31408ef1ef9e4e3d79fc44", size = 10313, upload-time = "2026-01-29T10:58:26.748Z" },
 ]
 
 [[package]]

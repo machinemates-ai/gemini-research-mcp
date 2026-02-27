@@ -152,10 +152,9 @@ fastest growth rate among new projects.
         )
 
         # Should get a structured result
-        assert result.rating in ["PASS", "NEEDS_REFINEMENT"]
-        assert isinstance(result.gaps, list)
-        assert isinstance(result.follow_up_questions, list)
-        assert result.raw_response is not None
+        assert result.grade in ["pass", "fail"]
+        assert isinstance(result.comment, str)
+        assert isinstance(result.follow_up_queries, list)
 
     @pytest.mark.asyncio
     @pytest.mark.e2e
@@ -176,13 +175,13 @@ Python has web frameworks. Django is one. Flask is another.
 
         # Should likely need refinement due to lack of depth
         # (Note: LLM response may vary, so we just verify structure)
-        assert result.rating in ["PASS", "NEEDS_REFINEMENT"]
-        assert isinstance(result.follow_up_questions, list)
+        assert result.grade in ["pass", "fail"]
+        assert isinstance(result.follow_up_queries, list)
 
     @pytest.mark.asyncio
     @pytest.mark.e2e
     async def test_critique_result_serialization(self):
-        """CritiqueResult should serialize correctly."""
+        """Feedback should serialize correctly."""
         from gemini_research_mcp.deep import critique_research
 
         result = await critique_research(
@@ -192,95 +191,86 @@ Python has web frameworks. Django is one. Flask is another.
 
         # Test serialization
         d = result.to_dict()
-        assert "rating" in d
-        assert "gaps" in d
-        assert "follow_up_questions" in d
-        # raw_response should NOT be serialized (privacy)
-        assert "raw_response" not in d
+        assert "grade" in d
+        assert "comment" in d
+        assert "follow_up_queries" in d
 
 
-class TestCritiqueResultType:
-    """Unit tests for CritiqueResult type (no API needed)."""
+class TestFeedbackType:
+    """Unit tests for Feedback type (no API needed)."""
 
     def test_needs_refinement_property_pass(self):
-        """needs_refinement should be False for PASS rating."""
-        from gemini_research_mcp.types import CritiqueResult
+        """needs_refinement should be False for pass grade."""
+        from gemini_research_mcp.types import Feedback
 
-        result = CritiqueResult(rating="PASS")
+        result = Feedback(grade="pass")
         assert result.needs_refinement is False
 
     def test_needs_refinement_property_refine(self):
-        """needs_refinement should be True for NEEDS_REFINEMENT rating."""
-        from gemini_research_mcp.types import CritiqueResult
+        """needs_refinement should be True for fail grade."""
+        from gemini_research_mcp.types import Feedback
 
-        result = CritiqueResult(rating="NEEDS_REFINEMENT")
-        assert result.needs_refinement is True
-
-    def test_needs_refinement_property_other(self):
-        """needs_refinement should be True for any non-PASS rating."""
-        from gemini_research_mcp.types import CritiqueResult
-
-        result = CritiqueResult(rating="UNKNOWN")
+        result = Feedback(grade="fail")
         assert result.needs_refinement is True
 
 
-class TestGroundedCritiqueResultType:
-    """Unit tests for GroundedCritiqueResult type (no API needed)."""
+class TestGroundedFeedbackType:
+    """Unit tests for GroundedFeedback type (no API needed)."""
 
     def test_is_verified_for_verified(self):
-        """is_verified should be True for VERIFIED rating."""
-        from gemini_research_mcp.types import GroundedCritiqueResult
+        """is_verified should be True for verified grade."""
+        from gemini_research_mcp.types import GroundedFeedback
 
-        result = GroundedCritiqueResult(fact_check_rating="VERIFIED")
+        result = GroundedFeedback(grade="verified")
         assert result.is_verified is True
 
     def test_is_verified_for_partially_verified(self):
-        """is_verified should be True for PARTIALLY_VERIFIED rating."""
-        from gemini_research_mcp.types import GroundedCritiqueResult
+        """is_verified should be True for partially_verified grade."""
+        from gemini_research_mcp.types import GroundedFeedback
 
-        result = GroundedCritiqueResult(fact_check_rating="PARTIALLY_VERIFIED")
+        result = GroundedFeedback(grade="partially_verified")
         assert result.is_verified is True
 
     def test_is_verified_for_disputed(self):
-        """is_verified should be False for DISPUTED rating."""
-        from gemini_research_mcp.types import GroundedCritiqueResult
+        """is_verified should be False for disputed grade."""
+        from gemini_research_mcp.types import GroundedFeedback
 
-        result = GroundedCritiqueResult(fact_check_rating="DISPUTED")
+        result = GroundedFeedback(grade="disputed")
         assert result.is_verified is False
 
     def test_is_verified_for_insufficient_data(self):
-        """is_verified should be False for INSUFFICIENT_DATA rating."""
-        from gemini_research_mcp.types import GroundedCritiqueResult
+        """is_verified should be False for insufficient_data grade."""
+        from gemini_research_mcp.types import GroundedFeedback
 
-        result = GroundedCritiqueResult(fact_check_rating="INSUFFICIENT_DATA")
+        result = GroundedFeedback(grade="insufficient_data")
         assert result.is_verified is False
 
     def test_to_dict(self):
         """to_dict should serialize all fields."""
-        from gemini_research_mcp.types import GroundedCritiqueResult
+        from gemini_research_mcp.types import GroundedFeedback
 
-        result = GroundedCritiqueResult(
-            fact_check_rating="VERIFIED",
+        result = GroundedFeedback(
+            grade="verified",
             claims_verified=["Claim A is correct", "Claim B checks out"],
             claims_disputed=["Claim C is outdated"],
             sources=["https://example.com/source1"],
         )
         d = result.to_dict()
 
-        assert d["fact_check_rating"] == "VERIFIED"
+        assert d["grade"] == "verified"
         assert len(d["claims_verified"]) == 2
         assert len(d["claims_disputed"]) == 1
         assert len(d["sources"]) == 1
 
     def test_default_empty_lists(self):
         """Default values should be empty lists."""
-        from gemini_research_mcp.types import GroundedCritiqueResult
+        from gemini_research_mcp.types import GroundedFeedback
 
-        result = GroundedCritiqueResult(fact_check_rating="VERIFIED")
+        result = GroundedFeedback(grade="verified")
         assert result.claims_verified == []
         assert result.claims_disputed == []
         assert result.sources == []
-        assert result.raw_response is None
+        assert result.comment == ""
 
 
 class TestAutoRefine:

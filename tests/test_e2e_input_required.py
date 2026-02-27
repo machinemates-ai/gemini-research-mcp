@@ -226,14 +226,18 @@ class TestInputRequiredProtocol:
 
     @pytest.mark.asyncio
     @pytest.mark.e2e
-    async def test_task_support_enabled(self):
-        """Verify task support is configured in the server."""
+    async def test_docket_support_enabled(self):
+        """Verify task support is configured via FastMCP Docket."""
         from gemini_research_mcp.server import lifespan
 
-        # The server should have a lifespan function that enables task support
+        # The server should have a lifespan function
         assert lifespan is not None
-        # Verify the lifespan is assigned to the FastMCP app
         assert callable(lifespan)
+
+        # Task routing is handled by FastMCP's Docket system
+        from fastmcp.server.dependencies import is_docket_available
+
+        assert is_docket_available(), "pydocket must be installed for task support"
 
     @pytest.mark.asyncio
     @pytest.mark.e2e

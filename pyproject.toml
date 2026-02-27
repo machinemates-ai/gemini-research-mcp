@@ -57,6 +57,7 @@ docx = [
 # Falls back to basic HTML parsing if not installed
 web = [
     "trafilatura>=2.0.0",
+    "protego>=0.3.1",
 ]
 dev = [
     "pytest>=8.0.0",
@@ -69,6 +70,7 @@ dev = [
     "python-docx>=1.2.0",
     "pygments>=2.19.2",
     "trafilatura>=2.0.0",
+    "protego>=0.3.1",
     "types-Pygments>=2.19.0",
 ]
 

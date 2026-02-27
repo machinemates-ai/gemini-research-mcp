@@ -7,9 +7,10 @@ Provides AI-powered research tools via Gemini:
 - research_followup: Ask follow-up questions about completed research
 
 Architecture:
-- MCP SDK with experimental task support for background tasks (MCP Tasks / SEP-1732)
-- ServerTaskContext for elicitation during background tasks (input_required pattern)
-- Progress reporting via task status updates
+- FastMCP 3.x with Docket-based task support for background tasks (MCP Tasks / SEP-1732)
+- Task routing via TaskConfig(mode="required") with in-memory Docket backend
+- Elicitation via FastMCP Context.elicit() (input_required pattern)
+- Progress reporting via ctx.report_progress() and ctx.info()
 """
 
 # NOTE: Do NOT use `from __future__ import annotations` with FastMCP/Pydantic
@@ -30,8 +31,7 @@ from typing import Annotated
 from fastmcp import Context, FastMCP
 from fastmcp.server.tasks.config import TaskConfig
 
-# Raw MCP types and experimental task support
-from mcp.server.experimental.task_support import TaskSupport
+# Raw MCP types
 from mcp.types import (
     BlobResourceContents,
     EmbeddedResource,
@@ -49,6 +49,7 @@ from gemini_research_mcp.content import fetch_webpage as _fetch_webpage
 from gemini_research_mcp.deep import (
     deep_research_stream,
     get_research_status,
+    iterative_refine_report,
 )
 from gemini_research_mcp.deep import research_followup as _research_followup
 from gemini_research_mcp.export import (
@@ -136,29 +137,20 @@ def _get_cached_export(export_id: str) -> ExportCacheEntry | None:
 
 
 # =============================================================================
-# Task Support Configuration
+# Server Lifespan
 # =============================================================================
-
-# Global TaskSupport instance for the server
-_task_support: TaskSupport | None = None
-
-
-def get_task_support() -> TaskSupport:
-    """Get the task support instance."""
-    if _task_support is None:
-        raise RuntimeError("TaskSupport not initialized. Server must be started with lifespan.")
-    return _task_support
 
 
 @asynccontextmanager
 async def lifespan(app: FastMCP) -> AsyncIterator[None]:
-    """Initialize task support and check for resumable sessions on startup."""
-    global _task_support
+    """Check for resumable sessions on startup.
 
-    # Enable experimental task support on the low-level server
-    _task_support = app._mcp_server.experimental.enable_tasks()
-
-    logger.info("✅ Experimental task support enabled")
+    Task support is handled entirely by FastMCP's built-in Docket system:
+    - _docket_lifespan() auto-detects TaskConfig-enabled tools
+    - Creates an in-memory Docket (memory://) with a Worker
+    - Registers MCP task protocol handlers (tasks/get, tasks/cancel, etc.)
+    """
+    logger.info("✅ FastMCP Docket task support active")
 
     # Check for resumable sessions from previous runs
     try:
@@ -171,8 +163,7 @@ async def lifespan(app: FastMCP) -> AsyncIterator[None]:
     except Exception as e:
         logger.warning("Failed to check for resumable sessions: %s", e)
 
-    async with _task_support.run():
-        yield
+    yield
 
 
 # =============================================================================
@@ -375,6 +366,18 @@ async def research_web(
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True, idempotentHint=True))
 async def fetch_webpage(
     url: Annotated[str, "URL of the webpage to fetch and extract content from"],
+    max_length: Annotated[
+        int | None,
+        "Optional max number of characters to return (for chunked reading)",
+    ] = None,
+    start_index: Annotated[
+        int,
+        "Character offset to start reading from (for pagination)",
+    ] = 0,
+    proxy_url: Annotated[
+        str | None,
+        "Optional HTTP(S) proxy URL for outbound fetch requests",
+    ] = None,
 ) -> str:
     """
     Fetch and extract content from a webpage as Markdown.
@@ -390,13 +393,21 @@ async def fetch_webpage(
 
     Args:
         url: The URL to fetch (must be http/https, no private IPs)
+        max_length: Optional character limit for chunked responses
+        start_index: Character offset for pagination
+        proxy_url: Optional HTTP(S) proxy URL
 
     Returns:
         Extracted content as Markdown, or error message if fetch failed
     """
     logger.info("🌐 fetch_webpage: %s", url[:100])
 
-    result = await _fetch_webpage(url)
+    result = await _fetch_webpage(
+        url,
+        max_length=max_length,
+        start_index=start_index,
+        proxy_url=proxy_url,
+    )
 
     if result.error:
         return f"❌ Failed to fetch: {result.error}"
@@ -409,6 +420,19 @@ async def fetch_webpage(
         lines.append("")
 
     lines.append(result.content)
+
+    if result.is_truncated:
+        next_start = start_index + len(result.content)
+        lines.extend([
+            "",
+            "---",
+            (
+                "*Content truncated. "
+                f"Showing {len(result.content):,} chars starting at index {start_index:,} "
+                f"(total ~{result.total_content_length:,} chars). "
+                f"Use start_index={next_start} to continue.*"
+            ),
+        ])
 
     if result.word_count:
         lines.extend([
@@ -705,6 +729,11 @@ async def research_deep(
                             interaction_id,
                             status=ResearchStatus.FAILED,
                         )
+                raise DeepResearchError(
+                    code="RESEARCH_FAILED",
+                    message=str(event.content or "Deep Research stream error"),
+                    details={"interaction_id": interaction_id},
+                )
 
         if not interaction_id:
             raise ValueError("No interaction_id received from stream")
@@ -741,36 +770,23 @@ async def research_deep(
                     if ctx:
                         await ctx.info("Running quality critique...")
 
-                    from gemini_research_mcp.deep import critique_research
+                    refined_text, final_feedback, refinements = await iterative_refine_report(
+                        effective_query,
+                        result.text,
+                        interaction_id,
+                        followup_func=_research_followup,
+                        max_iterations=5,
+                        max_followups_per_iteration=3,
+                        on_status=(ctx.info if ctx else None),
+                    )
+                    result.text = refined_text
 
-                    critique = await critique_research(effective_query, result.text)
-
-                    if critique.needs_refinement and critique.follow_up_questions:
+                    if refinements:
                         logger.info(
-                            "   🔄 Found %d gaps, running %d follow-ups",
-                            len(critique.gaps),
-                            len(critique.follow_up_questions),
+                            "   ✅ Appended %d refinements (final grade=%s)",
+                            len(refinements),
+                            final_feedback.grade,
                         )
-                        if ctx:
-                            await ctx.info(
-                                f"Refining: {len(critique.follow_up_questions)} follow-up queries"
-                            )
-
-                        refinements: list[str] = []
-                        for i, question in enumerate(critique.follow_up_questions[:3], 1):
-                            try:
-                                followup_response = await _research_followup(
-                                    interaction_id, question
-                                )
-                                if followup_response:
-                                    refinements.append(f"### {question}\n\n{followup_response}")
-                            except Exception as e:
-                                logger.warning("   ⚠️ Follow-up %d failed: %s", i, e)
-
-                        if refinements:
-                            appendix = "\n\n---\n\n## Refinements\n\n" + "\n\n".join(refinements)
-                            result.text = (result.text or "") + appendix
-                            logger.info("   ✅ Appended %d refinements", len(refinements))
                     else:
                         logger.info("   ✅ Report passed quality check")
 
@@ -805,14 +821,19 @@ async def research_deep(
 
                 return _format_deep_research_report(result, interaction_id, elapsed)
 
-            elif raw_status in ("failed", "cancelled"):
+            elif raw_status in ("failed", "cancelled", "canceled"):
                 logger.error("   ❌ Research %s after %s", raw_status, _format_duration(elapsed))
-                # Mark session as failed
+                # Mark session with appropriate status
                 if session_saved:
+                    session_status = (
+                        ResearchStatus.CANCELLED
+                        if raw_status in ("cancelled", "canceled")
+                        else ResearchStatus.FAILED
+                    )
                     with contextlib.suppress(Exception):
                         update_research_session(
                             interaction_id,
-                            status=ResearchStatus.FAILED,
+                            status=session_status,
                             duration_seconds=elapsed,
                         )
                 raise DeepResearchError(
@@ -1089,6 +1110,14 @@ async def research_followup(
             if not sessions:
                 return "❌ No research sessions found. Complete a deep research first."
 
+            # Filter out cancelled and failed sessions for auto-matching
+            matchable = [
+                s for s in sessions
+                if s.status not in (ResearchStatus.CANCELLED, ResearchStatus.FAILED)
+            ]
+            if not matchable:
+                return "❌ No active research sessions found. All sessions are cancelled or failed."
+
             # Build session list for semantic matching
             session_dicts = [
                 {
@@ -1096,7 +1125,7 @@ async def research_followup(
                     "query": s.query,
                     "summary": s.summary or s.query[:100],
                 }
-                for s in sessions
+                for s in matchable
             ]
 
             matched_id = await semantic_match_session(query, session_dicts)
@@ -1113,12 +1142,12 @@ async def research_followup(
                         matched_session.query[:50],
                     )
             else:
-                # Fall back to most recent session
-                previous_interaction_id = sessions[0].interaction_id
+                # Fall back to most recent matchable session
+                previous_interaction_id = matchable[0].interaction_id
                 logger.info(
                     "   📎 No semantic match, using most recent: %s (%s)",
-                    sessions[0].interaction_id[:12],
-                    sessions[0].query[:50],
+                    matchable[0].interaction_id[:12],
+                    matchable[0].query[:50],
                 )
 
         response = await _research_followup(
@@ -1276,6 +1305,16 @@ async def resume_research(
                 "hint": "Use research_followup or export_research_session.",
             })
 
+        # If already cancelled, don't re-query — it's terminal
+        if session.status == ResearchStatus.CANCELLED:
+            return json.dumps({
+                "status": "cancelled",
+                "message": "This research was cancelled and cannot be resumed.",
+                "resumable": False,
+                "query": session.query,
+                "hint": "Start a new research_deep with your query.",
+            })
+
         # Check with Gemini API for current status
         if ctx:
             await ctx.info(f"Checking status of research: {session.query[:50]}...")
@@ -1327,14 +1366,20 @@ async def resume_research(
 
                 return "\n".join(lines)
 
-            elif raw_status in ("failed", "cancelled"):
+            elif raw_status in ("failed", "cancelled", "canceled"):
+                session_status = (
+                    ResearchStatus.CANCELLED
+                    if raw_status in ("cancelled", "canceled")
+                    else ResearchStatus.FAILED
+                )
                 update_research_session(
                     interaction_id,
-                    status=ResearchStatus.FAILED,
+                    status=session_status,
                 )
                 return json.dumps({
                     "status": raw_status,
                     "message": f"Research {raw_status} on Gemini's servers.",
+                    "resumable": False,
                     "query": session.query,
                 })
 

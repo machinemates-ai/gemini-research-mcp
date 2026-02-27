@@ -11,6 +11,8 @@ from gemini_research_mcp.types import (
     DeepResearchProgress,
     DeepResearchResult,
     DeepResearchUsage,
+    Feedback,
+    GroundedFeedback,
     ParsedCitation,
     ResearchResult,
     Source,
@@ -280,68 +282,83 @@ class TestDeepResearchError:
         assert exc_info.value.code == "TEST"
 
 
-class TestCritiqueResult:
-    """Test CritiqueResult dataclass for auto-refine feature."""
+class TestFeedback:
+    """Test structured critique feedback model."""
 
     def test_construction_pass(self):
-        """CritiqueResult should be constructable with PASS rating."""
-        from gemini_research_mcp.types import CritiqueResult
-        result = CritiqueResult(rating="PASS")
-        assert result.rating == "PASS"
-        assert result.gaps == []
-        assert result.follow_up_questions == []
-        assert result.raw_response is None
+        """Feedback should be constructable with pass grade."""
+        result = Feedback(grade="pass", comment="Good coverage", follow_up_queries=[])
+        assert result.grade == "pass"
+        assert result.comment == "Good coverage"
+        assert result.follow_up_queries == []
 
-    def test_construction_needs_refinement(self):
-        """CritiqueResult should work with full args."""
-        from gemini_research_mcp.types import CritiqueResult
-        result = CritiqueResult(
-            rating="NEEDS_REFINEMENT",
-            gaps=["Missing market size data", "No competitor analysis"],
-            follow_up_questions=[
+    def test_construction_fail_with_followups(self):
+        """Feedback should support fail grade with follow-up queries."""
+        result = Feedback(
+            grade="fail",
+            comment="Missing market analysis",
+            follow_up_queries=[
                 "What is the total addressable market?",
                 "Who are the top 3 competitors?",
             ],
-            raw_response="RATING: NEEDS_REFINEMENT\n...",
         )
-        assert result.rating == "NEEDS_REFINEMENT"
-        assert len(result.gaps) == 2
-        assert len(result.follow_up_questions) == 2
+        assert result.needs_refinement is True
+        assert len(result.follow_up_queries) == 2
 
     def test_needs_refinement_property(self):
-        """needs_refinement property should work correctly."""
-        from gemini_research_mcp.types import CritiqueResult
-        
-        # PASS should not need refinement
-        pass_result = CritiqueResult(rating="PASS")
-        assert pass_result.needs_refinement is False
-
-        # NEEDS_REFINEMENT should need refinement
-        refine_result = CritiqueResult(rating="NEEDS_REFINEMENT")
-        assert refine_result.needs_refinement is True
-
-        # Any other rating should need refinement
-        other_result = CritiqueResult(rating="UNKNOWN")
-        assert other_result.needs_refinement is True
+        """needs_refinement should reflect grade."""
+        assert Feedback(grade="pass", comment="", follow_up_queries=[]).needs_refinement is False
+        assert Feedback(grade="fail", comment="", follow_up_queries=[]).needs_refinement is True
 
     def test_to_dict(self):
-        """to_dict should serialize CritiqueResult."""
-        from gemini_research_mcp.types import CritiqueResult
-        result = CritiqueResult(
-            rating="NEEDS_REFINEMENT",
-            gaps=["Gap 1"],
-            follow_up_questions=["Question 1", "Question 2"],
-            raw_response="...",
+        """to_dict should serialize Feedback fields."""
+        result = Feedback(
+            grade="fail",
+            comment="Needs additional evidence",
+            follow_up_queries=["Question 1", "Question 2"],
         )
         d = result.to_dict()
-        assert d["rating"] == "NEEDS_REFINEMENT"
-        assert d["gaps"] == ["Gap 1"]
-        assert d["follow_up_questions"] == ["Question 1", "Question 2"]
-        # raw_response should NOT be in to_dict (privacy)
-        assert "raw_response" not in d
+        assert d["grade"] == "fail"
+        assert d["comment"] == "Needs additional evidence"
+        assert d["follow_up_queries"] == ["Question 1", "Question 2"]
 
-    def test_slots(self):
-        """CritiqueResult should use slots for memory efficiency."""
-        from gemini_research_mcp.types import CritiqueResult
-        result = CritiqueResult(rating="PASS")
-        assert not hasattr(result, "__dict__")
+
+class TestGroundedFeedback:
+    """Test grounded fact-check feedback model."""
+
+    def test_is_verified_for_verified(self):
+        """is_verified should be True for verified grade."""
+        result = GroundedFeedback(grade="verified")
+        assert result.is_verified is True
+
+    def test_is_verified_for_partially_verified(self):
+        """is_verified should be True for partially verified grade."""
+        result = GroundedFeedback(grade="partially_verified")
+        assert result.is_verified is True
+
+    def test_is_verified_for_disputed(self):
+        """is_verified should be False for disputed grade."""
+        result = GroundedFeedback(grade="disputed")
+        assert result.is_verified is False
+
+    def test_is_verified_for_insufficient_data(self):
+        """is_verified should be False for insufficient_data grade."""
+        result = GroundedFeedback(grade="insufficient_data")
+        assert result.is_verified is False
+
+    def test_to_dict(self):
+        """to_dict should serialize grounded fields."""
+        result = GroundedFeedback(
+            grade="verified",
+            comment="Claims are consistent with current sources",
+            claims_verified=["Claim A is correct", "Claim B checks out"],
+            claims_disputed=["Claim C is outdated"],
+            sources=["https://example.com/source1"],
+        )
+        d = result.to_dict()
+
+        assert d["grade"] == "verified"
+        assert d["comment"] == "Claims are consistent with current sources"
+        assert len(d["claims_verified"]) == 2
+        assert len(d["claims_disputed"]) == 1
+        assert len(d["sources"]) == 1

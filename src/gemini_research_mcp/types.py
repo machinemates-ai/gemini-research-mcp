@@ -6,7 +6,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field
 
 # =============================================================================
 # Error Categories (inspired by DanDaDaDanDan/mcp-gemini)
@@ -220,55 +222,51 @@ class DeepResearchProgress:
     event_id: str | None = None  # For stream resumption after disconnection
 
 
-@dataclass(slots=True)
-class CritiqueResult:
-    """Result from _critique_research().
+class Feedback(BaseModel):
+    """Structured critique feedback (ADK-style)."""
 
-    Inspired by ADK Deep Search's research_evaluator Feedback schema.
-    """
-
-    rating: str  # "PASS" or "NEEDS_REFINEMENT"
-    gaps: list[str] = field(default_factory=list)
-    follow_up_questions: list[str] = field(default_factory=list)
-    raw_response: str | None = None
+    grade: Literal["pass", "fail"] = Field(description="Overall quality grade")
+    comment: str = Field(default="", description="Evaluator summary of quality and gaps")
+    follow_up_queries: list[str] = Field(
+        default_factory=list,
+        description="Specific follow-up queries to fill identified gaps",
+    )
 
     @property
     def needs_refinement(self) -> bool:
-        """Whether the research needs additional refinement."""
-        return self.rating != "PASS"
+        """Whether the report needs additional refinement."""
+        return self.grade == "fail"
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
-            "rating": self.rating,
-            "gaps": self.gaps,
-            "follow_up_questions": self.follow_up_questions,
+            "grade": self.grade,
+            "comment": self.comment,
+            "follow_up_queries": self.follow_up_queries,
         }
 
 
-@dataclass(slots=True)
-class GroundedCritiqueResult:
-    """Result from grounded_critique() - fact-checking via Google Search.
+class GroundedFeedback(BaseModel):
+    """Structured grounded fact-check feedback using Google Search."""
 
-    Uses Google Search Grounding (same as ADK's google_search tool) to
-    verify claims in research reports against current web sources.
-    """
-
-    fact_check_rating: str  # "VERIFIED", "PARTIALLY_VERIFIED", "DISPUTED", "INSUFFICIENT_DATA"
-    claims_verified: list[str] = field(default_factory=list)
-    claims_disputed: list[str] = field(default_factory=list)
-    sources: list[str] = field(default_factory=list)  # URLs used for verification
-    raw_response: str | None = None
+    grade: Literal["verified", "partially_verified", "disputed", "insufficient_data"] = Field(
+        description="Overall fact-check grade"
+    )
+    comment: str = Field(default="", description="Fact-check summary")
+    claims_verified: list[str] = Field(default_factory=list)
+    claims_disputed: list[str] = Field(default_factory=list)
+    sources: list[str] = Field(default_factory=list)
 
     @property
     def is_verified(self) -> bool:
         """Whether the research passed fact-checking."""
-        return self.fact_check_rating in ("VERIFIED", "PARTIALLY_VERIFIED")
+        return self.grade in ("verified", "partially_verified")
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
-            "fact_check_rating": self.fact_check_rating,
+            "grade": self.grade,
+            "comment": self.comment,
             "claims_verified": self.claims_verified,
             "claims_disputed": self.claims_disputed,
             "sources": self.sources,

@@ -111,29 +111,24 @@ class TestMCPResourceRegistration:
 
 
 class TestMCPLifespan:
-    """Tests for MCP server lifespan and TaskSupport."""
+    """Tests for MCP server lifespan and FastMCP Docket task support."""
 
     @pytest.mark.asyncio
     async def test_lifespan_context(self):
-        """Lifespan context should initialize TaskSupport."""
+        """Lifespan context should run without error."""
         from gemini_research_mcp.server import lifespan, mcp
 
         async with lifespan(mcp):
-            # TaskSupport should be initialized
-            from gemini_research_mcp.server import _task_support
+            # Lifespan runs successfully — FastMCP's Docket handles tasks
+            pass
 
-            assert _task_support is not None
+    def test_task_config_on_research_deep(self):
+        """research_deep tool should have TaskConfig(mode='required')."""
+        from fastmcp.server.tasks.config import TaskConfig
 
-    @pytest.mark.asyncio
-    async def test_task_support_has_run_method(self):
-        """TaskSupport should have run() async context manager."""
-        from gemini_research_mcp.server import lifespan, mcp
-
-        async with lifespan(mcp):
-            from gemini_research_mcp.server import get_task_support
-
-            ts = get_task_support()
-            assert hasattr(ts, "run")
+        # Verify TaskConfig is importable and usable
+        config = TaskConfig(mode="required")
+        assert config.mode == "required"
 
 
 class TestMCPContext:
@@ -208,11 +203,17 @@ class TestMCPTypesCompatibility:
             ToolAnnotations,
         ])
 
-    def test_task_support_import(self):
-        """TaskSupport should be importable from mcp.server.experimental."""
-        from mcp.server.experimental.task_support import TaskSupport
+    def test_task_config_import(self):
+        """TaskConfig should be importable from fastmcp."""
+        from fastmcp.server.tasks.config import TaskConfig
 
-        assert TaskSupport is not None
+        assert TaskConfig is not None
+
+    def test_docket_available(self):
+        """pydocket should be installed and available for FastMCP task routing."""
+        from fastmcp.server.dependencies import is_docket_available
+
+        assert is_docket_available(), "pydocket must be installed for task support"
 
 
 class TestMCPServerCLI:

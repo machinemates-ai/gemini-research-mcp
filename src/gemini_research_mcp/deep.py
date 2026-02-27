@@ -37,13 +37,14 @@ from gemini_research_mcp.config import (
     is_retryable_error,
 )
 from gemini_research_mcp.types import (
-    CritiqueResult,
     DeepResearchAgent,
     DeepResearchError,
     DeepResearchProgress,
     DeepResearchResult,
     DeepResearchUsage,
-    GroundedCritiqueResult,
+    ErrorCategory,
+    Feedback,
+    GroundedFeedback,
 )
 
 logger = logging.getLogger(LOGGER_NAME)
@@ -59,13 +60,9 @@ async def critique_research(
     report: str,
     *,
     model: str = "gemini-3.1-pro-preview",
-) -> CritiqueResult:
+) -> Feedback:
     """
-    Evaluate research quality and identify gaps.
-
-    Inspired by ADK Deep Search's research_evaluator agent which uses:
-    - LlmAgent with Feedback output schema (grade, comment, follow_up_queries)
-    - Iterative refinement loop with max 5 cycles
+    Evaluate research quality and identify follow-up queries.
 
     Args:
         query: Original research query
@@ -73,12 +70,17 @@ async def critique_research(
         model: Model to use for critique
 
     Returns:
-        CritiqueResult with rating, gaps, and follow-up questions
+        Structured Feedback with grade/comment/follow_up_queries
     """
-    # Import template here to avoid circular imports
+    from google.genai.types import GenerateContentConfig
+
     from gemini_research_mcp.templates import CRITIQUE_PROMPT
 
     prompt = CRITIQUE_PROMPT.format(query=query, report=report[:50000])  # Truncate if huge
+    config = GenerateContentConfig(
+        response_mime_type="application/json",
+        response_schema=Feedback,
+    )
 
     client = _get_healthy_client()
 
@@ -86,65 +88,31 @@ async def critique_research(
         response = await client.aio.models.generate_content(
             model=model,
             contents=prompt,
+            config=config,
         )
         _record_client_success()
 
-        response_text = response.text or ""
-
-        # Parse the structured response
-        rating = "NEEDS_REFINEMENT"  # Default to needing refinement
-        if "RATING: PASS" in response_text.upper():
-            rating = "PASS"
-
-        # Extract follow-up questions
-        follow_up_questions: list[str] = []
-        lines = response_text.split("\n")
-        in_questions = False
-        for line in lines:
-            line = line.strip()
-            if "FOLLOW_UP_QUESTIONS:" in line.upper() or "FOLLOW-UP QUESTIONS:" in line.upper():
-                in_questions = True
-                continue
-            if in_questions and line.startswith(("1.", "2.", "3.", "4.", "5.")):
-                question = line.split(".", 1)[-1].strip()
-                if question:
-                    follow_up_questions.append(question)
-
-        # Extract gaps
-        gaps: list[str] = []
-        in_gaps = False
-        for line in lines:
-            line = line.strip()
-            if "GAPS IDENTIFIED:" in line.upper():
-                in_gaps = True
-                continue
-            if in_gaps and line.startswith("-"):
-                gap = line[1:].strip()
-                if gap:
-                    gaps.append(gap)
-            elif in_gaps and (line.startswith("FOLLOW") or not line):
-                in_gaps = False
+        feedback: Feedback = response.parsed  # type: ignore[assignment]
+        follow_up_queries = [q.strip() for q in feedback.follow_up_queries if q.strip()][:5]
+        feedback = Feedback(
+            grade=feedback.grade,
+            comment=feedback.comment.strip(),
+            follow_up_queries=follow_up_queries,
+        )
 
         logger.info(
-            "📊 Critique result: rating=%s, gaps=%d, follow_ups=%d",
-            rating, len(gaps), len(follow_up_questions)
+            "📊 Critique result: grade=%s, follow_ups=%d",
+            feedback.grade,
+            len(feedback.follow_up_queries),
         )
-
-        return CritiqueResult(
-            rating=rating,
-            gaps=gaps,
-            follow_up_questions=follow_up_questions,
-            raw_response=response_text,
-        )
+        return feedback
 
     except Exception as e:
         logger.warning("Critique failed: %s", e)
-        # Return a default result on failure (don't block the main research)
-        return CritiqueResult(
-            rating="PASS",  # Assume pass if critique fails
-            gaps=[],
-            follow_up_questions=[],
-            raw_response=f"Critique failed: {e}",
+        return Feedback(
+            grade="pass",
+            comment=f"Critique failed: {e}",
+            follow_up_queries=[],
         )
 
 
@@ -153,7 +121,7 @@ async def grounded_critique(
     report: str,
     *,
     model: str = "gemini-3-flash-preview",
-) -> GroundedCritiqueResult:
+) -> GroundedFeedback:
     """
     Fact-check research using Google Search grounding.
 
@@ -169,12 +137,7 @@ async def grounded_critique(
         model: Model to use (Flash recommended for speed)
 
     Returns:
-        GroundedCritiqueResult with:
-        - fact_check_rating: "VERIFIED", "PARTIALLY_VERIFIED", "DISPUTED", or "INSUFFICIENT_DATA"
-        - claims_verified: List of verified claims
-        - claims_disputed: List of disputed/unverified claims
-        - sources: URLs used for verification
-        - raw_response: Full grounded response
+        Structured GroundedFeedback with grade and supporting claim/source lists
     """
     from google.genai.types import GenerateContentConfig, GoogleSearch, Tool
 
@@ -196,16 +159,12 @@ INSTRUCTIONS:
 3. Categorize each claim as VERIFIED (found matching sources) or DISPUTED (conflicts or no sources)
 4. Rate overall accuracy based on verification results
 
-OUTPUT FORMAT:
-CLAIMS_VERIFIED:
-- [factual claim that was confirmed by web search]
-- [another verified claim]
-
-CLAIMS_DISPUTED:
-- [claim that couldn't be verified or conflicts with current sources]
-- [outdated information]
-
-RATING: VERIFIED | PARTIALLY_VERIFIED | DISPUTED | INSUFFICIENT_DATA
+Return structured JSON using this schema:
+- grade: one of verified, partially_verified, disputed, insufficient_data
+- comment: concise summary of fact-check confidence and key caveats
+- claims_verified: list of verified claims
+- claims_disputed: list of disputed/unverified claims
+- sources: list of source URLs used for verification
 """
 
     client = _get_healthy_client()
@@ -215,6 +174,8 @@ RATING: VERIFIED | PARTIALLY_VERIFIED | DISPUTED | INSUFFICIENT_DATA
         config = GenerateContentConfig(
             tools=[Tool(google_search=GoogleSearch())],
             temperature=1.0,  # Recommended for grounding per Google 2025 docs
+            response_mime_type="application/json",
+            response_schema=GroundedFeedback,
         )
 
         response = await client.aio.models.generate_content(
@@ -224,45 +185,11 @@ RATING: VERIFIED | PARTIALLY_VERIFIED | DISPUTED | INSUFFICIENT_DATA
         )
         _record_client_success()
 
-        response_text = response.text or ""
-
-        # Parse rating
-        fact_check_rating = "INSUFFICIENT_DATA"
-        for rating_val in ["VERIFIED", "PARTIALLY_VERIFIED", "DISPUTED"]:
-            if f"RATING: {rating_val}" in response_text.upper():
-                fact_check_rating = rating_val
-                break
-
-        # Parse claims_verified
-        claims_verified: list[str] = []
-        claims_disputed: list[str] = []
-        lines = response_text.split("\n")
-
-        in_verified = False
-        in_disputed = False
-        for line in lines:
-            line = line.strip()
-            if "CLAIMS_VERIFIED:" in line.upper() or "CLAIMS VERIFIED:" in line.upper():
-                in_verified, in_disputed = True, False
-                continue
-            if "CLAIMS_DISPUTED:" in line.upper() or "CLAIMS DISPUTED:" in line.upper():
-                in_verified, in_disputed = False, True
-                continue
-            if "RATING:" in line.upper():
-                in_verified, in_disputed = False, False
-                continue
-
-            if line.startswith("-"):
-                claim = line[1:].strip()
-                if claim:
-                    if in_verified:
-                        claims_verified.append(claim)
-                    elif in_disputed:
-                        claims_disputed.append(claim)
+        feedback: GroundedFeedback = response.parsed  # type: ignore[assignment]
 
         # Extract sources and search queries from grounding metadata
         # Best Practice: Include webSearchQueries for debugging (Google docs)
-        sources: list[str] = []
+        sources = list(feedback.sources)
         search_queries_used: list[str] = []
         if response.candidates and response.candidates[0].grounding_metadata:
             gm = response.candidates[0].grounding_metadata
@@ -273,32 +200,94 @@ RATING: VERIFIED | PARTIALLY_VERIFIED | DISPUTED | INSUFFICIENT_DATA
                     if hasattr(chunk, "web") and chunk.web and chunk.web.uri:
                         sources.append(chunk.web.uri)
 
-        logger.info(
-            "🔍 Grounded critique: rating=%s, verified=%d, disputed=%d, sources=%d, queries=%d",
-            fact_check_rating,
-            len(claims_verified),
-            len(claims_disputed),
-            len(sources),
-            len(search_queries_used),
+        deduped_sources = list(dict.fromkeys(sources))
+        feedback = GroundedFeedback(
+            grade=feedback.grade,
+            comment=feedback.comment.strip(),
+            claims_verified=[c.strip() for c in feedback.claims_verified if c.strip()],
+            claims_disputed=[c.strip() for c in feedback.claims_disputed if c.strip()],
+            sources=deduped_sources,
         )
 
-        return GroundedCritiqueResult(
-            fact_check_rating=fact_check_rating,
-            claims_verified=claims_verified,
-            claims_disputed=claims_disputed,
-            sources=sources,
-            raw_response=response_text,
+        logger.info(
+            "🔍 Grounded critique: grade=%s, verified=%d, disputed=%d, sources=%d, queries=%d",
+            feedback.grade,
+            len(feedback.claims_verified),
+            len(feedback.claims_disputed),
+            len(feedback.sources),
+            len(search_queries_used),
         )
+        return feedback
 
     except Exception as e:
         logger.warning("Grounded critique failed: %s", e)
-        return GroundedCritiqueResult(
-            fact_check_rating="INSUFFICIENT_DATA",
+        return GroundedFeedback(
+            grade="insufficient_data",
+            comment=f"Grounded critique failed: {e}",
             claims_verified=[],
             claims_disputed=[],
             sources=[],
-            raw_response=f"Grounded critique failed: {e}",
         )
+
+
+async def iterative_refine_report(
+    query: str,
+    report: str,
+    interaction_id: str,
+    *,
+    followup_func: Callable[[str, str], Awaitable[str]],
+    max_iterations: int = 5,
+    max_followups_per_iteration: int = 3,
+    on_status: Callable[[str], None | Awaitable[None]] | None = None,
+) -> tuple[str, Feedback, list[str]]:
+    """Run ADK-style iterative critique/refinement loop and return updated report."""
+    current_report = report
+    all_refinements: list[str] = []
+    final_feedback = Feedback(grade="pass", comment="No critique executed", follow_up_queries=[])
+
+    for iteration in range(1, max_iterations + 1):
+        final_feedback = await critique_research(query, current_report)
+
+        if on_status:
+            status_msg = (
+                f"Critique iteration {iteration}/{max_iterations}: "
+                f"{final_feedback.grade.upper()}"
+            )
+            cb = on_status(status_msg)
+            if inspect.isawaitable(cb):
+                await cb
+
+        if not final_feedback.needs_refinement or not final_feedback.follow_up_queries:
+            break
+
+        follow_up_queries = final_feedback.follow_up_queries[:max_followups_per_iteration]
+
+        if on_status:
+            cb = on_status(
+                f"Refinement iteration {iteration}: running {len(follow_up_queries)} follow-ups"
+            )
+            if inspect.isawaitable(cb):
+                await cb
+
+        iteration_refinements: list[str] = []
+        for follow_up_query in follow_up_queries:
+            try:
+                followup_response = await followup_func(interaction_id, follow_up_query)
+            except Exception as e:
+                logger.warning("   ⚠️ Follow-up failed for '%s': %s", follow_up_query[:80], e)
+                continue
+
+            if followup_response:
+                iteration_refinements.append(f"### {follow_up_query}\n\n{followup_response}")
+
+        if not iteration_refinements:
+            break
+
+        all_refinements.extend(iteration_refinements)
+        appendix = "\n\n---\n\n## Refinements\n\n" + "\n\n".join(all_refinements)
+        current_report = report + appendix
+
+    return current_report, final_feedback, all_refinements
 
 
 # =============================================================================
@@ -590,6 +579,30 @@ async def deep_research_stream(
                     is_complete = True
                     yield DeepResearchProgress(
                         event_type="complete",
+                        interaction_id=interaction_id,
+                        event_id=last_event_id,
+                    )
+                elif interaction_status in ("cancelled", "canceled"):
+                    is_complete = True
+                    logger.warning(
+                        "[%.1fs] 🚫 interaction.complete: cancelled",
+                        elapsed,
+                    )
+                    yield DeepResearchProgress(
+                        event_type="error",
+                        content="Research cancelled by provider.",
+                        interaction_id=interaction_id,
+                        event_id=last_event_id,
+                    )
+                elif interaction_status == "failed":
+                    is_complete = True
+                    logger.error(
+                        "[%.1fs] ❌ interaction.complete: failed",
+                        elapsed,
+                    )
+                    yield DeepResearchProgress(
+                        event_type="error",
+                        content="Research failed on provider side.",
                         interaction_id=interaction_id,
                         event_id=last_event_id,
                     )
@@ -909,6 +922,14 @@ async def deep_research(
                         final_text = getattr(outputs[-1], "text", "") or ""
                     break
 
+                elif status in ("cancelled", "canceled"):
+                    raise DeepResearchError(
+                        code="RESEARCH_CANCELLED",
+                        message="Research cancelled by provider.",
+                        details={"interaction_id": interaction_id},
+                        category=ErrorCategory.RESEARCH_CANCELLED,
+                    )
+
                 elif status == "failed":
                     error = getattr(final_interaction, "error", "Unknown error")
                     raise DeepResearchError(
@@ -967,47 +988,40 @@ async def deep_research(
             if inspect.isawaitable(cb):
                 await cb
 
-        critique = await critique_research(query, result.text)
+        status_callback: Callable[[str], None | Awaitable[None]] | None = None
+        if on_progress:
 
-        if critique.needs_refinement and critique.follow_up_questions:
-            logger.info(
-                "🔄 AUTO_REFINE: Found %d gaps, running %d follow-up questions",
-                len(critique.gaps),
-                len(critique.follow_up_questions),
-            )
-
-            if on_progress:
-                prog = DeepResearchProgress(
-                    event_type="status",
-                    content=f"Refining: {len(critique.follow_up_questions)} follow-up queries",
-                    interaction_id=result.interaction_id,
+            async def _status_callback(message: str) -> None:
+                cb = on_progress(
+                    DeepResearchProgress(
+                        event_type="status",
+                        content=message,
+                        interaction_id=result.interaction_id,
+                    )
                 )
-                cb = on_progress(prog)
                 if inspect.isawaitable(cb):
                     await cb
 
-            # Run follow-up questions to fill gaps
-            refinements: list[str] = []
-            for i, question in enumerate(critique.follow_up_questions[:3], 1):  # Max 3
-                try:
-                    logger.info("   🔍 Follow-up %d: %s", i, question[:80])
-                    followup_response = await research_followup(
-                        result.interaction_id,
-                        question,
-                    )
-                    if followup_response:
-                        refinements.append(f"### {question}\n\n{followup_response}")
-                except Exception as e:
-                    logger.warning("   ⚠️ Follow-up %d failed: %s", i, e)
+            status_callback = _status_callback
 
-            # Append refinements to the report
-            if refinements:
-                appendix = "\n\n---\n\n## Refinements\n\n" + "\n\n".join(refinements)
-                result.text = result.text + appendix
-                result.thinking_summaries.append(
-                    f"Auto-refinement: Addressed {len(refinements)} gaps identified by critique"
-                )
-                logger.info("✅ AUTO_REFINE: Appended %d refinements", len(refinements))
+        refined_text, final_feedback, refinements = await iterative_refine_report(
+            query,
+            result.text,
+            result.interaction_id,
+            followup_func=research_followup,
+            max_iterations=5,
+            max_followups_per_iteration=3,
+            on_status=status_callback,
+        )
+
+        result.text = refined_text
+        if refinements:
+            result.thinking_summaries.append(
+                "Auto-refinement: "
+                f"{len(refinements)} follow-up sections added; "
+                f"final grade={final_feedback.grade}"
+            )
+            logger.info("✅ AUTO_REFINE: Appended %d refinements", len(refinements))
         else:
             logger.info("✅ AUTO_REFINE: Report passed quality check, no refinement needed")
 
@@ -1033,7 +1047,10 @@ async def deep_research(
 
             # Append fact-check results to the report
             fact_check_section = "\n\n---\n\n## Fact-Check (Grounded)\n\n"
-            fact_check_section += f"**Rating:** {critique_result.fact_check_rating}\n\n"
+            fact_check_section += f"**Rating:** {critique_result.grade.upper()}\n\n"
+
+            if critique_result.comment:
+                fact_check_section += f"{critique_result.comment}\n\n"
 
             if critique_result.claims_verified:
                 fact_check_section += "### ✅ Verified Claims\n"
@@ -1054,13 +1071,13 @@ async def deep_research(
 
             result.text = result.text + fact_check_section
             result.thinking_summaries.append(
-                f"Grounded fact-check: {critique_result.fact_check_rating} "
+                f"Grounded fact-check: {critique_result.grade} "
                 f"({len(critique_result.claims_verified)} verified, "
                 f"{len(critique_result.claims_disputed)} disputed)"
             )
             logger.info(
                 "✅ GROUNDED: Fact-check complete - %s",
-                critique_result.fact_check_rating,
+                critique_result.grade,
             )
         except Exception as e:
             logger.warning("⚠️ GROUNDED: Fact-check failed: %s", e)
@@ -1082,7 +1099,7 @@ async def get_research_status(interaction_id: str) -> DeepResearchResult:
         DeepResearchResult with current status and any available outputs
     """
     client = _get_healthy_client()  # Use health-monitored client
-    interaction = await client.aio.interactions.get(interaction_id)
+    interaction = await client.aio.interactions.get(id=interaction_id)
     _record_client_success()
 
     status = getattr(interaction, "status", "unknown")

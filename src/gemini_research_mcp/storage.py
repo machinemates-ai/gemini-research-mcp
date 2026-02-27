@@ -96,6 +96,7 @@ class ResearchStatus(str, Enum):
     COMPLETED = "completed"  # Research finished successfully
     FAILED = "failed"  # Research failed with error
     INTERRUPTED = "interrupted"  # Research interrupted (VS Code disconnected, etc.)
+    CANCELLED = "cancelled"  # Research cancelled by provider or user
 
 
 @dataclass

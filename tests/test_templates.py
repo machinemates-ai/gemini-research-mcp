@@ -326,12 +326,12 @@ class TestCritiquePrompt:
         assert "{report}" not in formatted
 
     def test_includes_rating_options(self):
-        """Should document PASS and NEEDS_REFINEMENT ratings."""
-        assert "PASS" in CRITIQUE_PROMPT
-        assert "NEEDS_REFINEMENT" in CRITIQUE_PROMPT
+        """Should document pass/fail grades."""
+        assert "pass" in CRITIQUE_PROMPT
+        assert "fail" in CRITIQUE_PROMPT
 
     def test_includes_output_format(self):
-        """Should include expected output format."""
-        assert "RATING:" in CRITIQUE_PROMPT
-        assert "GAPS IDENTIFIED:" in CRITIQUE_PROMPT
-        assert "FOLLOW_UP_QUESTIONS:" in CRITIQUE_PROMPT
+        """Should include structured feedback field names."""
+        assert "grade" in CRITIQUE_PROMPT
+        assert "comment" in CRITIQUE_PROMPT
+        assert "follow_up_queries" in CRITIQUE_PROMPT

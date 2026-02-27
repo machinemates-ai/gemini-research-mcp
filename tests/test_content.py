@@ -8,7 +8,10 @@ import pytest
 
 from gemini_research_mcp.content import (
     FetchResult,
+    _slice_content,
+    check_robots_txt,
     is_private_ip,
+    validate_proxy_url,
     validate_url,
 )
 
@@ -118,6 +121,16 @@ class TestURLValidation:
         assert is_valid is False
         assert "SSRF" in error or "private" in error.lower()
 
+    def test_proxy_url_validation(self):
+        """Proxy URLs should use SSRF-safe validation."""
+        ok, err = validate_proxy_url("https://example.com:3128")
+        assert ok is True
+        assert err == ""
+
+        ok, err = validate_proxy_url("http://127.0.0.1:3128")
+        assert ok is False
+        assert "proxy_url" in err.lower()
+
 
 class TestFetchResult:
     """Tests for FetchResult dataclass."""
@@ -149,6 +162,66 @@ class TestFetchResult:
         assert result.error == "SSRF blocked: private IP"
         assert result.content == ""
         assert result.word_count == 0
+        assert result.is_truncated is False
+        assert result.total_content_length == 0
+
+
+class TestChunking:
+    """Tests for chunk slicing helper."""
+
+    def test_slice_content_with_max_length(self):
+        """Should return truncated chunk and mark truncated."""
+        chunk, is_truncated, total_len = _slice_content("abcdefghijklmnopqrstuvwxyz", 5, 7)
+
+        assert chunk == "fghijkl"
+        assert is_truncated is True
+        assert total_len == 26
+
+    def test_slice_content_to_end(self):
+        """Should not mark truncated when reaching end."""
+        chunk, is_truncated, total_len = _slice_content("abcdefghijklmnopqrstuvwxyz", 20, 6)
+
+        assert chunk == "uvwxyz"
+        assert is_truncated is False
+        assert total_len == 26
+
+    def test_slice_content_out_of_bounds(self):
+        """Out-of-bounds start index should return empty chunk."""
+        chunk, is_truncated, total_len = _slice_content("abc", 100, 10)
+
+        assert chunk == ""
+        assert is_truncated is False
+        assert total_len == 3
+
+
+class TestRobotsCache:
+    """Tests for robots cache behavior."""
+
+    @pytest.mark.asyncio
+    async def test_check_robots_cached_allow_none(self):
+        """Cached None parser should allow fetch."""
+        import gemini_research_mcp.content as content
+
+        content._ROBOTS_CACHE.clear()
+        content._ROBOTS_CACHE["https://example.com"] = None
+
+        allowed = await check_robots_txt("https://example.com/docs")
+        assert allowed is True
+
+    @pytest.mark.asyncio
+    async def test_check_robots_cached_disallow(self):
+        """Cached parser should be consulted for can_fetch."""
+        import gemini_research_mcp.content as content
+
+        class FakeParser:
+            def can_fetch(self, url: str, user_agent: str) -> bool:
+                return False
+
+        content._ROBOTS_CACHE.clear()
+        content._ROBOTS_CACHE["https://example.com"] = FakeParser()
+
+        allowed = await check_robots_txt("https://example.com/private")
+        assert allowed is False
 
 
 class TestFetchWebpageAsync:
@@ -194,3 +267,74 @@ class TestFetchWebpageAsync:
 
         assert result.error is not None
         assert "scheme" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_invalid_start_index_rejected(self):
+        """Negative start_index should be rejected before network calls."""
+        from gemini_research_mcp.content import fetch_webpage
+
+        result = await fetch_webpage("https://example.com", start_index=-1)
+        assert result.error == "start_index must be >= 0"
+
+    @pytest.mark.asyncio
+    async def test_invalid_max_length_rejected(self):
+        """Non-positive max_length should be rejected."""
+        from gemini_research_mcp.content import fetch_webpage
+
+        result = await fetch_webpage("https://example.com", max_length=0)
+        assert result.error == "max_length must be > 0 when provided"
+
+    @pytest.mark.asyncio
+    async def test_robots_block_returns_error(self, monkeypatch: pytest.MonkeyPatch):
+        """Disallowed robots.txt should short-circuit fetch."""
+        import gemini_research_mcp.content as content
+
+        async def fake_robots(*args: object, **kwargs: object) -> bool:
+            return False
+
+        monkeypatch.setattr(content, "validate_url", lambda _: (True, ""))
+        monkeypatch.setattr(content, "check_robots_txt", fake_robots)
+
+        result = await content.fetch_webpage("https://example.com")
+        assert result.error == "Blocked by robots.txt"
+
+    @pytest.mark.asyncio
+    async def test_proxy_url_passed_to_httpx(self, monkeypatch: pytest.MonkeyPatch):
+        """Proxy URL should be forwarded to httpx AsyncClient."""
+        import gemini_research_mcp.content as content
+
+        captured_proxy: dict[str, str | None] = {"value": None}
+
+        class MockResponse:
+            status_code = 200
+            headers: dict[str, str] = {}
+            text = "<html><head><title>T</title></head><body><p>Hello world.</p></body></html>"
+
+            def raise_for_status(self) -> None:
+                return None
+
+        class MockClient:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                captured_proxy["value"] = kwargs.get("proxy")  # type: ignore[assignment]
+
+            async def __aenter__(self) -> "MockClient":
+                return self
+
+            async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+                return None
+
+            async def get(self, url: str) -> MockResponse:
+                return MockResponse()
+
+        async def always_true(*args: object, **kwargs: object) -> bool:
+            return True
+
+        monkeypatch.setattr(content, "validate_url", lambda _: (True, ""))
+        monkeypatch.setattr(content, "check_robots_txt", always_true)
+        monkeypatch.setattr(content.httpx, "AsyncClient", MockClient)
+
+        proxy = "http://proxy.example.com:3128"
+        result = await content.fetch_webpage("https://example.com", proxy_url=proxy)
+
+        assert result.error is None
+        assert captured_proxy["value"] == proxy
