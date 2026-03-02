@@ -6,9 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Literal
-
-from pydantic import BaseModel, Field
+from typing import Any
 
 # =============================================================================
 # Error Categories (inspired by DanDaDaDanDan/mcp-gemini)
@@ -220,57 +218,6 @@ class DeepResearchProgress:
     content: str | None = None
     interaction_id: str | None = None
     event_id: str | None = None  # For stream resumption after disconnection
-
-
-class Feedback(BaseModel):
-    """Structured critique feedback (ADK-style)."""
-
-    grade: Literal["pass", "fail"] = Field(description="Overall quality grade")
-    comment: str = Field(default="", description="Evaluator summary of quality and gaps")
-    follow_up_queries: list[str] = Field(
-        default_factory=list,
-        description="Specific follow-up queries to fill identified gaps",
-    )
-
-    @property
-    def needs_refinement(self) -> bool:
-        """Whether the report needs additional refinement."""
-        return self.grade == "fail"
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
-        return {
-            "grade": self.grade,
-            "comment": self.comment,
-            "follow_up_queries": self.follow_up_queries,
-        }
-
-
-class GroundedFeedback(BaseModel):
-    """Structured grounded fact-check feedback using Google Search."""
-
-    grade: Literal["verified", "partially_verified", "disputed", "insufficient_data"] = Field(
-        description="Overall fact-check grade"
-    )
-    comment: str = Field(default="", description="Fact-check summary")
-    claims_verified: list[str] = Field(default_factory=list)
-    claims_disputed: list[str] = Field(default_factory=list)
-    sources: list[str] = Field(default_factory=list)
-
-    @property
-    def is_verified(self) -> bool:
-        """Whether the research passed fact-checking."""
-        return self.grade in ("verified", "partially_verified")
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
-        return {
-            "grade": self.grade,
-            "comment": self.comment,
-            "claims_verified": self.claims_verified,
-            "claims_disputed": self.claims_disputed,
-            "sources": self.sources,
-        }
 
 
 # =============================================================================

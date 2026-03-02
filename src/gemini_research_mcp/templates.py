@@ -736,24 +736,3 @@ Example:
 
 Be specific and actionable. Focus on what will answer the user's needs.
 """
-
-
-CRITIQUE_PROMPT = """
-You are a research quality critic. Evaluate the following research report
-for completeness and quality.
-
-**Original Query:** {query}
-
-**Research Report:**
-{report}
-
-**Your Task:**
-1. Decide if the report is complete enough to answer the original query.
-2. Set grade to:
-    - pass: report is sufficiently complete and accurate
-    - fail: report has material gaps, ambiguity, or missing evidence
-3. Write a concise comment summarizing key strengths/weaknesses.
-4. If grade is fail, provide 2-4 targeted follow_up_queries that would close the gaps.
-
-Be constructive and specific. Focus on substantive gaps, not stylistic preferences.
-"""

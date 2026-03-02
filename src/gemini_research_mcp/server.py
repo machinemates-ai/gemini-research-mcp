@@ -49,7 +49,6 @@ from gemini_research_mcp.content import fetch_webpage as _fetch_webpage
 from gemini_research_mcp.deep import (
     deep_research_stream,
     get_research_status,
-    iterative_refine_report,
 )
 from gemini_research_mcp.deep import research_followup as _research_followup
 from gemini_research_mcp.export import (
@@ -598,10 +597,6 @@ async def research_deep(
         list[str] | None,
         "Optional: Gemini File Search store names to search your own data alongside web",
     ] = None,
-    auto_refine: Annotated[
-        bool,
-        "If True, run automatic critique cycle and append refinements to fill gaps",
-    ] = False,
     ctx: Context | None = None,
 ) -> str:
     """
@@ -617,7 +612,6 @@ async def research_deep(
         query: Research question or topic (can be vague - clarification is automatic)
         format_instructions: Optional report structure/tone guidance
         file_search_store_names: Optional file stores for RAG over your own data
-        auto_refine: Run automatic quality critique and fill gaps (adds ~30s-2min)
 
     Returns:
         Comprehensive research report with citations
@@ -627,8 +621,6 @@ async def research_deep(
         logger.info("   📝 Format: %s", format_instructions[:80])
     if file_search_store_names:
         logger.info("   📁 File search stores: %s", file_search_store_names)
-    if auto_refine:
-        logger.info("   🔄 Auto-refine: enabled")
 
     # Resolve template key to full template instructions
     effective_format = format_instructions
@@ -777,46 +769,6 @@ async def research_deep(
                 logger.info("   ✅ Research completed in %s", _format_duration(elapsed))
 
                 result = await process_citations(result, resolve_urls=True)
-
-                # ============================================================
-                # Auto-refine: Run critique cycle and append findings
-                # ============================================================
-                if auto_refine and result.text and interaction_id:
-                    logger.info("   🔄 AUTO_REFINE: Running critique cycle...")
-                    if ctx:
-                        await ctx.report_progress(
-                            progress=92,
-                            total=100,
-                            message="🔄 Running quality critique...",
-                        )
-
-                    async def _refine_progress(status_message: str) -> None:
-                        if ctx:
-                            await ctx.report_progress(
-                                progress=94,
-                                total=100,
-                                message=f"🔄 {status_message}",
-                            )
-
-                    refined_text, final_feedback, refinements = await iterative_refine_report(
-                        effective_query,
-                        result.text,
-                        interaction_id,
-                        followup_func=_research_followup,
-                        max_iterations=5,
-                        max_followups_per_iteration=3,
-                        on_status=(_refine_progress if ctx else None),
-                    )
-                    result.text = refined_text
-
-                    if refinements:
-                        logger.info(
-                            "   ✅ Appended %d refinements (final grade=%s)",
-                            len(refinements),
-                            final_feedback.grade,
-                        )
-                    else:
-                        logger.info("   ✅ Report passed quality check")
 
                 # Auto-save session for later follow-up
                 total_tokens = None

@@ -11,7 +11,6 @@ from gemini_research_mcp.templates import (
     API_EVALUATION,
     COMPARISON_TABLE,
     COMPETITIVE_ANALYSIS,
-    CRITIQUE_PROMPT,
     DEEP_DIVE,
     EXECUTIVE_BRIEFING,
     LITERATURE_REVIEW,
@@ -304,34 +303,3 @@ class TestResearchPlanPrompt:
         """Should document RESEARCH and DELIVERABLE task types."""
         assert "[RESEARCH]" in RESEARCH_PLAN_PROMPT
         assert "[DELIVERABLE]" in RESEARCH_PLAN_PROMPT
-
-
-class TestCritiquePrompt:
-    """Test the CRITIQUE_PROMPT constant."""
-
-    def test_has_placeholders(self):
-        """Should have {query} and {report} placeholders."""
-        assert "{query}" in CRITIQUE_PROMPT
-        assert "{report}" in CRITIQUE_PROMPT
-
-    def test_format_works(self):
-        """Should be formattable with query and report."""
-        formatted = CRITIQUE_PROMPT.format(
-            query="test query",
-            report="# Report\n\nContent here"
-        )
-        assert "test query" in formatted
-        assert "Content here" in formatted
-        assert "{query}" not in formatted
-        assert "{report}" not in formatted
-
-    def test_includes_rating_options(self):
-        """Should document pass/fail grades."""
-        assert "pass" in CRITIQUE_PROMPT
-        assert "fail" in CRITIQUE_PROMPT
-
-    def test_includes_output_format(self):
-        """Should include structured feedback field names."""
-        assert "grade" in CRITIQUE_PROMPT
-        assert "comment" in CRITIQUE_PROMPT
-        assert "follow_up_queries" in CRITIQUE_PROMPT

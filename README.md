@@ -118,8 +118,6 @@ Notes:
 - **Export Formats**: Export to Markdown, JSON, or professional DOCX with Table of Contents
 - **File Search**: Search your own data alongside web using `file_search_store_names`
 - **Format Instructions**: Control report structure (sections, tables, tone)
-- **Structured Critique**: Auto-refine uses strict JSON schema (`grade`, `comment`, `follow_up_queries`)
-- **Structured Grounded Fact-Check**: Grounded mode uses strict JSON schema (`grade`, `comment`, `claims_verified`, `claims_disputed`, `sources`)
 
 ## Installation
 
@@ -153,51 +151,6 @@ cp .env.example .env
 ```
 
 ## Usage
-
-### Structured Critique Schema
-
-When `auto_refine` is enabled, the evaluator returns structured feedback:
-
-```json
-{
-  "grade": "pass | fail",
-  "comment": "Concise quality assessment",
-  "follow_up_queries": [
-    "Targeted follow-up question 1",
-    "Targeted follow-up question 2"
-  ]
-}
-```
-
-The server runs an iterative refinement loop (up to 5 iterations): evaluate → run follow-ups → re-evaluate.
-
-### Structured Grounded Fact-Check Schema
-
-When grounded fact-checking is enabled, the validator returns:
-
-```json
-{
-  "grade": "verified | partially_verified | disputed | insufficient_data",
-  "comment": "Fact-check summary",
-  "claims_verified": ["..."],
-  "claims_disputed": ["..."],
-  "sources": ["https://..."]
-}
-```
-
-This result is appended to the final report under the `Fact-Check (Grounded)` section.
-
-### Breaking Changes
-
-The critique model is intentionally **not backward compatible**:
-
-- `CritiqueResult` was replaced by `Feedback`
-- `GroundedCritiqueResult` was replaced by `GroundedFeedback`
-- `rating` → `grade`
-- `follow_up_questions` → `follow_up_queries`
-- `fact_check_rating` → `grade` (grounded)
-
-If you consume Python APIs directly, update imports/field names accordingly.
 
 ### VS Code MCP
 
