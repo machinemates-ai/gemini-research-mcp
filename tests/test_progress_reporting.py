@@ -66,14 +66,18 @@ async def test_research_deep_emits_progress_for_thought(monkeypatch: pytest.Monk
 
     assert "## Research Report" in result
 
+    # Start event is emitted through task statusMessage channel.
+    ctx.report_progress.assert_any_await(
+        progress=0,
+        total=100,
+        message="🚀 Research started",
+    )
+
     ctx.report_progress.assert_any_await(
         progress=5,
         total=100,
         message="[1] 🧠 Thinking about the answer",
     )
 
-    # v0.10.4 behavior: thought steps are progress-only in foreground execution.
-    assert not any(
-        (call.args and call.args[0] == "[1] 🧠 Thinking about the answer")
-        for call in ctx.info.await_args_list
-    )
+    # Progress updates are unified on report_progress for task-mode execution.
+    ctx.info.assert_not_awaited()

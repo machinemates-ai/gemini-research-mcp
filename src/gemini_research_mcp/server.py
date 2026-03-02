@@ -10,7 +10,7 @@ Architecture:
 - FastMCP 3.x with Docket-based task support for background tasks (MCP Tasks / SEP-1732)
 - Task routing via TaskConfig(mode="required") with in-memory Docket backend
 - Elicitation via FastMCP Context.elicit() (input_required pattern)
-- Progress reporting via ctx.report_progress() and ctx.info()
+- Progress reporting via ctx.report_progress() (task statusMessage channel)
 """
 
 # NOTE: Do NOT use `from __future__ import annotations` with FastMCP/Pydantic
@@ -659,7 +659,11 @@ async def research_deep(
     # Phase 2: Deep Research Execution
     # ==========================================================================
     if ctx is not None:
-        await ctx.info("Starting deep research...")
+        await ctx.report_progress(
+            progress=0,
+            total=100,
+            message="Starting deep research...",
+        )
 
     try:
         thought_count = 0
@@ -716,10 +720,18 @@ async def research_deep(
                 content = event.content or ""
                 short = content[:55] + "..." if len(content) > 55 else content
                 if ctx:
-                    await ctx.info(f"[{action_count}] 🔍 {short}")
+                    await ctx.report_progress(
+                        progress=min(50, thought_count * 5 + action_count * 2),
+                        total=100,
+                        message=f"[{action_count}] 🔍 {short}",
+                    )
             elif event.event_type == "start":
                 if ctx:
-                    await ctx.info("🚀 Research agent autonomous investigation started")
+                    await ctx.report_progress(
+                        progress=0,
+                        total=100,
+                        message="🚀 Research started",
+                    )
             elif event.event_type == "error":
                 logger.error("   Stream error: %s", event.content)
                 # Mark session as failed if we have interaction_id
@@ -741,7 +753,11 @@ async def research_deep(
         logger.info("   📊 Stream consumed: %d thoughts, %d actions", thought_count, action_count)
 
         if ctx:
-            await ctx.info("Waiting for research completion...")
+            await ctx.report_progress(
+                progress=50,
+                total=100,
+                message="⏳ Waiting for completion...",
+            )
 
         # Poll for completion
         max_wait = 1200  # 20 minutes max
@@ -768,7 +784,19 @@ async def research_deep(
                 if auto_refine and result.text and interaction_id:
                     logger.info("   🔄 AUTO_REFINE: Running critique cycle...")
                     if ctx:
-                        await ctx.info("Running quality critique...")
+                        await ctx.report_progress(
+                            progress=92,
+                            total=100,
+                            message="🔄 Running quality critique...",
+                        )
+
+                    async def _refine_progress(status_message: str) -> None:
+                        if ctx:
+                            await ctx.report_progress(
+                                progress=94,
+                                total=100,
+                                message=f"🔄 {status_message}",
+                            )
 
                     refined_text, final_feedback, refinements = await iterative_refine_report(
                         effective_query,
@@ -777,7 +805,7 @@ async def research_deep(
                         followup_func=_research_followup,
                         max_iterations=5,
                         max_followups_per_iteration=3,
-                        on_status=(ctx.info if ctx else None),
+                        on_status=(_refine_progress if ctx else None),
                     )
                     result.text = refined_text
 
@@ -918,7 +946,11 @@ async def research_deep_planned(
 
     # Phase 1: Generate research plan using quick_research
     if ctx:
-        await ctx.info("Generating research plan...")
+        await ctx.report_progress(
+            progress=0,
+            total=100,
+            message="📋 Generating research plan...",
+        )
 
     try:
         plan_prompt = RESEARCH_PLAN_PROMPT.format(query=query)
@@ -984,7 +1016,11 @@ async def research_deep_planned(
     # Phase 3: Execute approved plan with research_deep
     logger.info("   🚀 Executing approved plan...")
     if ctx:
-        await ctx.info("Starting research with approved plan...")
+        await ctx.report_progress(
+            progress=10,
+            total=100,
+            message="🚀 Starting research with approved plan...",
+        )
 
     # Combine query with approved plan as format instructions
     combined_instructions = (
