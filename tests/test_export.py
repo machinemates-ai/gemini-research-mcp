@@ -19,6 +19,8 @@ from gemini_research_mcp.export import (
 )
 from gemini_research_mcp.storage import ResearchSession
 
+DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -32,7 +34,10 @@ def sample_session() -> ResearchSession:
         query="What are the best practices for quantum computing security?",
         created_at=time.time(),
         title="Quantum Computing Security Research",
-        summary="This research explores quantum computing security best practices including post-quantum cryptography and quantum key distribution.",
+        summary=(
+            "This research explores quantum computing security best practices "
+            "including post-quantum cryptography and quantum key distribution."
+        ),
         report_text="""## Executive Summary
 
 Quantum computing poses significant challenges to current cryptographic systems.
@@ -221,7 +226,7 @@ class TestDocxExport:
 
         assert result.format == ExportFormat.DOCX
         assert result.filename.endswith(".docx")
-        assert result.mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        assert result.mime_type == DOCX_MIME_TYPE
         assert len(result.content) > 0
 
     def test_docx_is_valid_zip(self, sample_session: ResearchSession) -> None:
@@ -436,7 +441,11 @@ class TestDocxExport:
         doc = Document(BytesIO(result.content))
 
         # Find paragraphs that look like list items
-        list_texts = [p.text for p in doc.paragraphs if p.text.strip().startswith(("1.", "2.", "3."))]
+        list_texts = [
+            p.text
+            for p in doc.paragraphs
+            if p.text.strip().startswith(("1.", "2.", "3."))
+        ]
         assert len(list_texts) >= 3
         assert any("1." in t for t in list_texts)
 
@@ -710,7 +719,7 @@ class TestExportCache:
 
         content = get_export_by_id(export_id)
         assert isinstance(content, BlobResourceContents)
-        assert content.mimeType == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        assert content.mimeType == DOCX_MIME_TYPE
         # Verify base64 decodes to original content
         decoded = base64.b64decode(content.blob)
         assert decoded == result.content

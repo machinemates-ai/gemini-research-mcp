@@ -4,7 +4,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-MCP server for AI-powered research using **Gemini**. Fast grounded search + comprehensive Deep Research + session management.
+MCP server for AI-powered research using **Gemini**. Fast grounded search, URL extraction, comprehensive Deep Research, and session management.
 
 ## Architecture
 
@@ -26,7 +26,6 @@ flowchart TB
         subgraph Tools["Tools"]
             RW["research_web<br/>Quick lookup 5-30s"]
             RD["research_deep<br/>Autonomous 3-20min"]
-            RDP["research_deep_planned<br/>Plan → Approve → Execute"]
             RF["research_followup<br/>Continue session"]
             RR["resume_research<br/>Recover interrupted"]
             FW["fetch_webpage<br/>Content extraction"]
@@ -39,7 +38,7 @@ flowchart TB
             Quick["quick.py<br/>Web grounding"]
             Deep["deep.py<br/>Deep research agent"]
             Content["content.py<br/>SSRF protection"]
-            Sessions["sessions.py<br/>Session manager"]
+          StorageMod["storage.py<br/>Session manager"]
             Templates["templates.py<br/>Format templates"]
         end
     end
@@ -58,16 +57,15 @@ flowchart TB
     
     RW --> Quick
     RD --> Deep
-    RDP --> Deep
-    RF --> Sessions
-    RR --> Sessions
+    RF --> StorageMod
+    RR --> StorageMod
     FW --> Content
     LT --> Templates
     
     Quick -->|"grounding"| Gemini
     Deep -->|"agentic"| Gemini
     Content -->|"httpx"| Web
-    Sessions --> SQLite
+    StorageMod --> SQLite
 ```
 
 </details>
@@ -78,13 +76,12 @@ flowchart TB
 |------|-------------|---------|
 | `research_web` | Fast web search with citations | 5-30 sec |
 | `research_deep` | Multi-step autonomous research (MCP Tasks) | 3-20 min |
-| `research_deep_planned` | Plan → approve → execute workflow (MCP Tasks) | 3-20 min |
 | `resume_research` | Resume interrupted/in-progress sessions | instant |
 | `research_followup` | Continue conversation after research | 5-30 sec |
 | `list_research_sessions` | List saved research sessions | instant |
 | `list_format_templates` | Browse report format templates | instant |
 | `export_research_session` | Export to Markdown, JSON, or DOCX | instant |
-| `fetch_webpage` | Extract article content (SSRF-protected, robots-aware, chunkable) | 0.5-2 sec |
+| `fetch_webpage` | Extract article content from a specific URL (SSRF-protected, chunkable) | 0.5-2 sec |
 
 ### `fetch_webpage` Parameters
 
@@ -103,6 +100,17 @@ Notes:
 - When output is truncated, the response includes a continuation hint with next `start_index`.
 - If `proxy_url` is omitted, the server falls back to `FETCH_PROXY_URL` when set.
 - `proxy_url` must be a public HTTP(S) host (private/internal proxy hosts are blocked).
+
+Install the `web` extra for the highest-quality `fetch_webpage` experience:
+
+```bash
+pip install 'gemini-research-mcp[web]'
+# or
+uv add 'gemini-research-mcp[web]'
+```
+
+Without `[web]`, `fetch_webpage` still works using the built-in HTML fallback, but `trafilatura`
+extraction and `protego`-based `robots.txt` checks are unavailable.
 
 ### Power User Workflow
 
@@ -140,7 +148,7 @@ The bundle uses UV runtime - dependencies are installed automatically, no Python
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `GEMINI_API_KEY` | **Yes** | — | [Google AI Studio API key](https://aistudio.google.com/apikey) |
-| `GEMINI_MODEL` | No | `gemini-3-flash-preview` | Model for `research_web` |
+| `GEMINI_MODEL` | No | `gemini-3.1-pro-preview` | Model for `research_web` |
 | `GEMINI_SUMMARY_MODEL` | No | `gemini-3-flash-preview` | Model for session summaries (fast) |
 | `DEEP_RESEARCH_AGENT` | No | `deep-research-pro-preview-12-2025` | Agent for `research_deep` |
 | `FETCH_PROXY_URL` | No | — | Default HTTP(S) proxy for `fetch_webpage` |

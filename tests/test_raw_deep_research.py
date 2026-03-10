@@ -98,7 +98,11 @@ async def run_deep_research(query: str) -> None:
                             if thought_text:
                                 thought_count += 1
                                 thinking_summaries.append(thought_text)
-                                summary = thought_text[:100] + "..." if len(thought_text) > 100 else thought_text
+                                summary = (
+                                    thought_text[:100] + "..."
+                                    if len(thought_text) > 100
+                                    else thought_text
+                                )
                                 log(f"   🧠 Thought #{thought_count}: {summary}")
                     elif delta_type == 'text':
                         content = getattr(delta, 'content', None)
@@ -160,7 +164,10 @@ async def run_deep_research(query: str) -> None:
     
     # If stream ended with in_progress or no text, poll
     if interaction_id and (final_status == "in_progress" or not final_text):
-        log(f"⏳ Status is '{final_status}' with {len(final_text)} chars text - starting polling...")
+        log(
+            f"⏳ Status is '{final_status}' with {len(final_text)} chars text "
+            "- starting polling..."
+        )
         
         poll_start = time.time()
         poll_count = 0
@@ -182,11 +189,22 @@ async def run_deep_research(query: str) -> None:
                 if status == "completed":
                     # Debug: show interaction structure
                     log(f"   🔍 Interaction type: {type(interaction)}")
-                    log(f"   🔍 Interaction attrs: {[a for a in dir(interaction) if not a.startswith('_')]}")
+                    interaction_attrs = [
+                        attr for attr in dir(interaction) if not attr.startswith('_')
+                    ]
+                    log(f"   🔍 Interaction attrs: {interaction_attrs}")
                     
                     # Try outputs (plural) - the correct attribute
                     if hasattr(interaction, 'outputs') and interaction.outputs:
-                        log(f"   🔍 outputs type: {type(interaction.outputs)}, len: {len(interaction.outputs) if hasattr(interaction.outputs, '__len__') else 'N/A'}")
+                        outputs_len = (
+                            len(interaction.outputs)
+                            if hasattr(interaction.outputs, '__len__')
+                            else 'N/A'
+                        )
+                        log(
+                            f"   🔍 outputs type: {type(interaction.outputs)}, "
+                            f"len: {outputs_len}"
+                        )
                         for i, item in enumerate(interaction.outputs):
                             item_type = type(item).__name__
                             log(f"   🔍 outputs[{i}] type: {item_type}")
@@ -194,35 +212,68 @@ async def run_deep_research(query: str) -> None:
                             # Check for direct .text attribute (TextContent has this!)
                             if hasattr(item, 'text') and item.text:
                                 final_text = item.text
-                                log(f"   ✅ Got text from outputs[{i}].text: {len(final_text)} chars")
+                                log(
+                                    f"   ✅ Got text from outputs[{i}].text: "
+                                    f"{len(final_text)} chars"
+                                )
                                 log(f"   📜 First 500 chars: {final_text[:500]}...")
                                 break  # Found it!
                             
                             # Check for summary (ThoughtContent)
                             if hasattr(item, 'summary') and item.summary:
-                                log(f"   🧠 outputs[{i}].summary (thought): {item.summary[:100]}...")
+                                log(
+                                    f"   🧠 outputs[{i}].summary (thought): "
+                                    f"{item.summary[:100]}..."
+                                )
                             
                             # Fallback: check parts (older API?)
                             if hasattr(item, 'parts') and item.parts:
                                 for j, part in enumerate(item.parts):
-                                    log(f"   🔍 outputs[{i}].parts[{j}] type: {type(part).__name__}")
+                                    part_type = type(part).__name__
+                                    log(
+                                        f"   🔍 outputs[{i}].parts[{j}] type: {part_type}"
+                                    )
                                     if hasattr(part, 'text') and part.text:
                                         final_text = part.text
-                                        log(f"   ✅ Got text from outputs.parts.text: {len(final_text)} chars")
+                                        log(
+                                            "   ✅ Got text from outputs.parts.text: "
+                                            f"{len(final_text)} chars"
+                                        )
                     else:
                         log("   🔍 No outputs attribute or empty")
                     
                     # Try output (singular) as fallback
                     if hasattr(interaction, 'output') and interaction.output:
-                        log(f"   🔍 output type: {type(interaction.output)}, len: {len(interaction.output) if hasattr(interaction.output, '__len__') else 'N/A'}")
+                        output_len = (
+                            len(interaction.output)
+                            if hasattr(interaction.output, '__len__')
+                            else 'N/A'
+                        )
+                        log(
+                            f"   🔍 output type: {type(interaction.output)}, "
+                            f"len: {output_len}"
+                        )
                         for i, item in enumerate(interaction.output):
-                            log(f"   🔍 output[{i}] type: {type(item)}, attrs: {[a for a in dir(item) if not a.startswith('_')]}")
+                            item_attrs = [attr for attr in dir(item) if not attr.startswith('_')]
+                            log(
+                                f"   🔍 output[{i}] type: {type(item)}, "
+                                f"attrs: {item_attrs}"
+                            )
                             if hasattr(item, 'parts') and item.parts:
                                 for j, part in enumerate(item.parts):
-                                    log(f"   🔍 output[{i}].parts[{j}] type: {type(part)}, attrs: {[a for a in dir(part) if not a.startswith('_')]}")
+                                    part_attrs = [
+                                        attr for attr in dir(part) if not attr.startswith('_')
+                                    ]
+                                    log(
+                                        f"   🔍 output[{i}].parts[{j}] type: {type(part)}, "
+                                        f"attrs: {part_attrs}"
+                                    )
                                     if hasattr(part, 'text') and part.text:
                                         final_text = part.text
-                                        log(f"   ✅ Got text from output.parts.text: {len(final_text)} chars")
+                                        log(
+                                            "   ✅ Got text from output.parts.text: "
+                                            f"{len(final_text)} chars"
+                                        )
                     else:
                         log("   🔍 No output attribute or empty")
                     
@@ -232,16 +283,36 @@ async def run_deep_research(query: str) -> None:
                         resp = interaction.response
                         if hasattr(resp, 'candidates') and resp.candidates:
                             for c, cand in enumerate(resp.candidates):
-                                log(f"   🔍 response.candidates[{c}] attrs: {[a for a in dir(cand) if not a.startswith('_')]}")
+                                candidate_attrs = [
+                                    attr for attr in dir(cand) if not attr.startswith('_')
+                                ]
+                                log(
+                                    f"   🔍 response.candidates[{c}] attrs: "
+                                    f"{candidate_attrs}"
+                                )
                                 if hasattr(cand, 'content') and cand.content:
                                     content = cand.content
-                                    log(f"   🔍 candidate.content attrs: {[a for a in dir(content) if not a.startswith('_')]}")
+                                    content_attrs = [
+                                        attr for attr in dir(content) if not attr.startswith('_')
+                                    ]
+                                    log(f"   🔍 candidate.content attrs: {content_attrs}")
                                     if hasattr(content, 'parts') and content.parts:
                                         for p, part in enumerate(content.parts):
-                                            log(f"   🔍 candidate.content.parts[{p}] attrs: {[a for a in dir(part) if not a.startswith('_')]}")
+                                            part_attrs = [
+                                                attr
+                                                for attr in dir(part)
+                                                if not attr.startswith('_')
+                                            ]
+                                            log(
+                                                f"   🔍 candidate.content.parts[{p}] attrs: "
+                                                f"{part_attrs}"
+                                            )
                                             if hasattr(part, 'text') and part.text:
                                                 final_text = part.text
-                                                log(f"   ✅ Got text from response.candidates.content.parts.text: {len(final_text)} chars")
+                                                log(
+                                                    "   ✅ Got text from response.candidates."
+                                                    f"content.parts.text: {len(final_text)} chars"
+                                                )
                     else:
                         log("   🔍 No response attribute or empty")
                     

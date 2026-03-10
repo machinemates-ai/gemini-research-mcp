@@ -23,7 +23,7 @@ LOGGER_NAME = "gemini-research-mcp"
 # =============================================================================
 
 # Default models - can be overridden via environment
-DEFAULT_MODEL = "gemini-3-flash-preview"
+DEFAULT_MODEL = "gemini-3.1-pro-preview"
 # Interactions Deep Research agent (only supported agent)
 DEFAULT_DEEP_RESEARCH_AGENT = DeepResearchAgent.DEEP_RESEARCH_PRO
 # Model for generating summaries (fast, cheap)

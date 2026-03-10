@@ -1,7 +1,7 @@
 {
   "name": "gemini-research-mcp",
   "displayName": "Gemini Research MCP",
-  "description": "AI-powered research using Google Gemini: fast grounded search + Deep Research Agent for comprehensive reports",
+  "description": "AI-powered research using Google Gemini: grounded search, URL extraction, and Deep Research",
   "version": "0.11.0",
   "publisher": "machinemates-ai",
   "license": "MIT",
@@ -52,6 +52,11 @@
         "name": "gemini_research_deep",
         "displayName": "Gemini Deep Research",
         "modelDescription": "Comprehensive autonomous research agent (3-20 minutes). Use for research reports, competitive analysis, investigations."
+      },
+      {
+        "name": "gemini_fetch_webpage",
+        "displayName": "Gemini Read URL",
+        "modelDescription": "Extract clean Markdown from a specific public URL. Use for documentation, articles, and linked pages."
       }
     ],
     "configuration": {

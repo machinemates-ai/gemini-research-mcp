@@ -17,7 +17,6 @@ from gemini_research_mcp.templates import (
     MARKET_RESEARCH,
     PROS_CONS_ANALYSIS,
     RESEARCH_BRIEF,
-    RESEARCH_PLAN_PROMPT,
     TECHNICAL_OVERVIEW,
     TEMPLATES_BY_CATEGORY,
     FormatTemplate,
@@ -284,22 +283,3 @@ class TestListTemplates:
         templates = list_templates()
         keys = {t["key"] for t in templates}
         assert keys == set(ALL_TEMPLATES.keys())
-
-
-class TestResearchPlanPrompt:
-    """Test the RESEARCH_PLAN_PROMPT constant."""
-
-    def test_has_query_placeholder(self):
-        """Should have {query} placeholder."""
-        assert "{query}" in RESEARCH_PLAN_PROMPT
-
-    def test_format_works(self):
-        """Should be formattable with query."""
-        formatted = RESEARCH_PLAN_PROMPT.format(query="test query")
-        assert "test query" in formatted
-        assert "{query}" not in formatted
-
-    def test_includes_task_types(self):
-        """Should document RESEARCH and DELIVERABLE task types."""
-        assert "[RESEARCH]" in RESEARCH_PLAN_PROMPT
-        assert "[DELIVERABLE]" in RESEARCH_PLAN_PROMPT

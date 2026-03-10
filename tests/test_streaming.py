@@ -102,7 +102,8 @@ async def test_deep_research_async():
     
     print("=" * 60)
     print("\n📋 Result:")
-    print(f"   Text: {result.text[:200]}..." if len(result.text) > 200 else f"   Text: {result.text}")
+    preview = f"{result.text[:200]}..." if len(result.text) > 200 else result.text
+    print(f"   Text: {preview}")
     print(f"   Thoughts collected: {len(result.thinking_summaries)}")
     print(f"   Interaction ID: {result.interaction_id}")
     print(f"   Progress events: {progress_log}")
@@ -145,7 +146,10 @@ async def test_real_deep_research():
     
     result = await deep_research_async(
         query,
-        format_instructions="Use markdown formatting with clear sections. Include a comparison table.",
+        format_instructions=(
+            "Use markdown formatting with clear sections. "
+            "Include a comparison table."
+        ),
         on_progress=log_progress,
     )
     
@@ -163,8 +167,13 @@ async def test_real_deep_research():
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser()
-    parser.add_argument("--real", action="store_true", help="Run real deep research test (takes 3-15 min)")
+    parser.add_argument(
+        "--real",
+        action="store_true",
+        help="Run real deep research test (takes 3-15 min)",
+    )
     args = parser.parse_args()
     
     print("🔬 Deep Research Streaming Test")

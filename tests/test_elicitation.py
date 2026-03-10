@@ -83,8 +83,14 @@ class TestElicitationPattern:
         ]
 
         specific_queries = [
-            "Compare FastAPI vs Django for building REST APIs in 2025 with async support and SQLAlchemy integration",
-            "Research the environmental impact of electric vehicles vs gasoline cars in European markets from 2020-2025",
+            (
+                "Compare FastAPI vs Django for building REST APIs in 2025 with "
+                "async support and SQLAlchemy integration"
+            ),
+            (
+                "Research the environmental impact of electric vehicles vs gasoline "
+                "cars in European markets from 2020-2025"
+            ),
         ]
 
         # We can't directly test the internal logic without mocking,
