@@ -313,13 +313,17 @@ class TestFollowupFiltersOutCancelled:
                 "gemini_research_mcp.server._research_followup",
                 new_callable=AsyncMock,
                 return_value="Response about dogs.",
-            ) as mock_followup,
+            ),
         ):
             await research_followup(query="Tell me more about cats")
 
             # semantic_match_session should only receive the completed session
             call_args = mock_semantic.call_args
-            session_dicts = call_args.args[1] if call_args.args else call_args.kwargs.get("sessions", [])
+            session_dicts = (
+                call_args.args[1]
+                if call_args.args
+                else call_args.kwargs.get("sessions", [])
+            )
             ids_in_match = [s["id"] for s in session_dicts]
             assert "cancelled-for-match" not in ids_in_match
             assert "completed-for-match" in ids_in_match

@@ -1,21 +1,12 @@
-"""End-to-end tests for v2.0 features: templates and planned research.
+"""Tests for format templates and related helper behavior.
 
-These tests verify the new features added in v2.0:
+These tests verify the reusable template features:
 - list_format_templates tool
-- research_deep_planned tool (with mocked elicitation)
 
-Run with: uv run pytest tests/test_v2_features.py -v -m e2e --tb=short
+Run with: uv run pytest tests/test_v2_features.py -v --tb=short
 """
 
-import os
-
 import pytest
-
-# Skip API-dependent tests if no key
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("GEMINI_API_KEY"),
-    reason="GEMINI_API_KEY not set",
-)
 
 
 class TestListFormatTemplates:
@@ -89,21 +80,6 @@ class TestTemplateResolution:
         assert get_template("Executive Briefing") is not None
         assert get_template("EXECUTIVE_BRIEFING") is not None
 
-
-class TestResearchDeepPlannedMocked:
-    """Test research_deep_planned with mocked elicitation (no API needed)."""
-
-    @pytest.mark.asyncio
-    async def test_plan_generation_prompt_formatting(self):
-        """RESEARCH_PLAN_PROMPT should format correctly."""
-        from gemini_research_mcp.templates import RESEARCH_PLAN_PROMPT
-
-        formatted = RESEARCH_PLAN_PROMPT.format(
-            query="Analyze the AI coding assistant market"
-        )
-
-        assert "Analyze the AI coding assistant market" in formatted
-        assert "{query}" not in formatted
 
 class TestIntegration:
     """Integration tests combining multiple v2.0 features."""

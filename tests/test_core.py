@@ -4,6 +4,7 @@ Tests thinking level parsing and system prompt generation.
 Run with: uv run pytest tests/ -v
 """
 
+import types
 from datetime import date
 
 import pytest
@@ -14,7 +15,12 @@ from gemini_research_mcp.config import (
     DEFAULT_THINKING_LEVEL,
     default_system_prompt,
 )
-from gemini_research_mcp.quick import THINKING_LEVEL_MAP, _get_thinking_level
+from gemini_research_mcp.quick import (
+    THINKING_LEVEL_MAP,
+    _extract_sources_from_text,
+    _get_thinking_level,
+    quick_research,
+)
 
 
 class TestThinkingLevel:
@@ -44,6 +50,48 @@ class TestThinkingLevel:
         """THINKING_LEVEL_MAP should have all expected levels."""
         expected = {"minimal", "low", "medium", "high"}
         assert set(THINKING_LEVEL_MAP.keys()) == expected
+
+    def test_source_fallback_extracts_markdown_links(self):
+        """Link extraction should populate sources when grounding metadata is unavailable."""
+        sources = _extract_sources_from_text(
+            "See the [Python docs](https://docs.python.org/3/library/dataclasses.html)."
+        )
+
+        assert len(sources) == 1
+        assert sources[0].title == "Python docs"
+        assert sources[0].uri == "https://docs.python.org/3/library/dataclasses.html"
+
+    @pytest.mark.asyncio
+    async def test_quick_research_uses_fixed_high_thinking(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """quick_research should always send HIGH thinking to Gemini."""
+        captured: dict[str, object] = {}
+
+        async def fake_generate_content(*, model: str, contents: str, config: object) -> object:
+            captured["model"] = model
+            captured["contents"] = contents
+            captured["config"] = config
+            return types.SimpleNamespace(text="ok", candidates=[])
+
+        fake_client = types.SimpleNamespace(
+            aio=types.SimpleNamespace(
+                models=types.SimpleNamespace(generate_content=fake_generate_content)
+            )
+        )
+
+        monkeypatch.setattr("gemini_research_mcp.quick.get_api_key", lambda: "test-key")
+        monkeypatch.setattr("gemini_research_mcp.quick.get_model", lambda: "gemini-3.1-pro-preview")
+        monkeypatch.setattr(
+            "gemini_research_mcp.quick.genai.Client",
+            lambda api_key: fake_client,
+        )
+
+        await quick_research("test query", thinking_level="minimal")
+
+        config = captured["config"]
+        assert config.thinking_config.thinking_level == ThinkingLevel.HIGH
 
     def test_default_is_high(self):
         """Default thinking level should be 'high'."""

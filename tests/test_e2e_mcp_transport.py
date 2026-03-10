@@ -8,11 +8,8 @@ Run with: uv run pytest tests/test_e2e_mcp_transport.py -v --tb=short
 These tests do NOT require GEMINI_API_KEY - they only validate the MCP protocol.
 """
 
-import asyncio
-import json
 import subprocess
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -22,7 +19,7 @@ class TestMCPServerStartup:
 
     def test_server_module_imports(self):
         """Server module should import without errors."""
-        from gemini_research_mcp.server import mcp, main
+        from gemini_research_mcp.server import main, mcp
 
         assert mcp is not None
         assert main is not None
@@ -45,7 +42,6 @@ class TestMCPServerStartup:
     def test_server_version_set(self):
         """Server should have version from package."""
         from gemini_research_mcp import __version__
-        from gemini_research_mcp.server import mcp
 
         # FastMCP may or may not expose version, but package should have it
         assert __version__ is not None
@@ -67,7 +63,6 @@ class TestMCPToolRegistration:
             "research_web",
             "fetch_webpage",
             "research_deep",
-            "research_deep_planned",
             "list_format_templates",
             "list_research_sessions",
             "export_research_session",
@@ -84,7 +79,7 @@ class TestMCPToolRegistration:
         from gemini_research_mcp.server import mcp
 
         tools = await mcp.list_tools()
-        assert len(tools) == 9, f"Expected 9 tools, got {len(tools)}"
+        assert len(tools) == 8, f"Expected 8 tools, got {len(tools)}"
 
     @pytest.mark.asyncio
     async def test_tools_have_descriptions(self):
@@ -142,12 +137,13 @@ class TestMCPContext:
 
     def test_context_not_generic(self):
         """fastmcp Context should not require generic parameters."""
-        from fastmcp import Context
         import inspect
+
+        from fastmcp import Context
 
         # Get the class signature - it should not be a Generic
         # In fastmcp, Context is a concrete class, not Generic[ServerDeps, ClientDeps, Lifespan]
-        sig = inspect.signature(Context)
+        inspect.signature(Context)
         # Should be able to instantiate hint without type params
         # (we can't actually instantiate without a server, but the type check passes)
         assert "Context" in str(Context)
@@ -158,8 +154,9 @@ class TestMCPElicitation:
 
     def test_elicit_method_signature(self):
         """Context.elicit should use response_type parameter."""
-        from fastmcp import Context
         import inspect
+
+        from fastmcp import Context
 
         sig = inspect.signature(Context.elicit)
         params = list(sig.parameters.keys())
@@ -169,8 +166,9 @@ class TestMCPElicitation:
 
     def test_elicit_returns_elicitation_types(self):
         """elicit() should return Accepted/Declined/Cancelled types."""
-        from fastmcp import Context
         import inspect
+
+        from fastmcp import Context
 
         sig = inspect.signature(Context.elicit)
         return_annotation = str(sig.return_annotation)
@@ -268,20 +266,3 @@ class TestFastMCPDecorator:
 
         assert research_deep.__name__ == "research_deep"
 
-
-class TestInternalFunctionCalls:
-    """Tests for internal function-to-function calls."""
-
-    def test_research_deep_planned_can_call_research_deep(self):
-        """research_deep_planned should be able to call research_deep directly."""
-        from gemini_research_mcp.server import research_deep, research_deep_planned
-        import inspect
-
-        # Both should be async functions
-        assert inspect.iscoroutinefunction(research_deep)
-        assert inspect.iscoroutinefunction(research_deep_planned)
-
-        # research_deep should be directly callable (not wrapped in FunctionTool)
-        assert callable(research_deep)
-        # It should NOT have a .fn attribute (that's raw mcp SDK behavior)
-        assert not hasattr(research_deep, "fn") or research_deep.fn is None

@@ -1,15 +1,15 @@
 import types
+from collections.abc import AsyncIterator
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
-from typing import Any, AsyncIterator
 
 import pytest
 
 
 @pytest.mark.asyncio
 async def test_research_deep_emits_progress_for_thought(monkeypatch: pytest.MonkeyPatch) -> None:
-    from gemini_research_mcp.types import DeepResearchProgress, DeepResearchResult
-
     import gemini_research_mcp.server as server
+    from gemini_research_mcp.types import DeepResearchProgress, DeepResearchResult
 
     async def fake_stream(
         *,
@@ -34,7 +34,10 @@ async def test_research_deep_emits_progress_for_thought(monkeypatch: pytest.Monk
             raw_interaction=types.SimpleNamespace(status="completed"),
         )
 
-    async def passthrough_citations(result: DeepResearchResult, resolve_urls: bool) -> DeepResearchResult:
+    async def passthrough_citations(
+        result: DeepResearchResult,
+        resolve_urls: bool,
+    ) -> DeepResearchResult:
         return result
 
     async def fake_generate_title_from_query(query: str) -> str | None:

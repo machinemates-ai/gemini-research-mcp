@@ -294,7 +294,7 @@ async def research_web(
     """
     Fast web research with Gemini grounding. Returns answer with citations in seconds.
 
-    Always uses thorough reasoning (thinking_level=high) for quality results.
+    Uses a fixed high thinking level for higher-quality grounded answers.
 
     Use for: quick lookups, fact-checking, current events, documentation, "what is",
     "how to", real-time information, news, API references, error messages.
@@ -437,7 +437,7 @@ async def fetch_webpage(
         lines.extend([
             "",
             "---",
-            f"*Extracted {result.word_count:,} words from {url}*",
+            f"*Extracted {result.word_count:,} words from {result.url}*",
         ])
 
     return "\n".join(lines)
@@ -851,141 +851,6 @@ async def research_deep(
             code="INTERNAL_ERROR",
             message=str(e),
         ) from e
-
-
-# =============================================================================
-# research_deep_planned: Plan → Approve → Execute workflow
-# Inspired by ADK Deep Search's interactive_planner_agent
-# =============================================================================
-
-
-@mcp.tool(
-    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
-    task=TaskConfig(mode="required"),
-)
-async def research_deep_planned(
-    query: Annotated[str, "Research question or topic to investigate thoroughly"],
-    format_instructions: Annotated[
-        str | None,
-        "Optional report format (e.g., 'executive briefing', 'comparison table')",
-    ] = None,
-    ctx: Context | None = None,
-) -> str:
-    """
-    Deep research with explicit plan approval step before execution.
-
-    Generates a research plan first, presents it for approval via MCP elicitation,
-    then executes the approved plan. This gives you control over the research direction.
-
-    Workflow:
-    1. Generate research plan (5-15 seconds)
-    2. Present plan for approval (user interaction)
-    3. Execute approved plan (3-20 minutes)
-
-    Use for: When you want to review/modify the research approach before investing time.
-
-    Args:
-        query: Research question or topic
-        format_instructions: Optional report structure/tone guidance
-
-    Returns:
-        Comprehensive research report with citations
-    """
-    from gemini_research_mcp.templates import RESEARCH_PLAN_PROMPT
-
-    logger.info("📋 research_deep_planned: %s", query[:100])
-    start = time.time()
-
-    # Phase 1: Generate research plan using quick_research
-    if ctx:
-        await ctx.report_progress(
-            progress=0,
-            total=100,
-            message="📋 Generating research plan...",
-        )
-
-    try:
-        plan_prompt = RESEARCH_PLAN_PROMPT.format(query=query)
-        plan_result = await quick_research(
-            query=plan_prompt,
-            include_thoughts=False,
-        )
-        plan_text = plan_result.text
-        logger.info("   📝 Generated plan in %.1fs", time.time() - start)
-
-    except Exception as e:
-        logger.exception("Plan generation failed: %s", e)
-        return f"❌ Failed to generate research plan: {e}"
-
-    # Phase 2: Present plan for approval via MCP elicitation
-    if ctx is None:
-        # No context available - proceed without approval
-        logger.warning("   ⚠️ No context for elicitation, proceeding with plan")
-        approved_plan = plan_text
-    else:
-        try:
-            from pydantic import create_model
-
-            PlanApproval = create_model(
-                "PlanApproval",
-                approved_plan=(
-                    str,
-                    Field(
-                        default=plan_text,
-                        description="Edit the plan or leave as-is to approve",
-                    ),
-                ),
-            )
-
-            message = (
-                f"## Research Plan for: \"{query}\"\n\n"
-                f"{plan_text}\n\n"
-                f"---\n\n"
-                f"Edit the plan below or press **Continue** to approve and start research.\n"
-                f"Press **Cancel** to abort."
-            )
-
-            result = await ctx.elicit(
-                message=message,
-                response_type=PlanApproval,  # type: ignore[arg-type]
-            )
-
-            if result.action == "cancel":
-                return "❌ Research cancelled by user."
-
-            if result.action == "accept" and result.data:
-                data = result.data.model_dump() if hasattr(result.data, "model_dump") else {}
-                approved_plan = data.get("approved_plan", plan_text)
-                if approved_plan != plan_text:
-                    logger.info("   ✏️ User modified the plan")
-            else:
-                approved_plan = plan_text
-
-        except Exception as e:
-            logger.warning("   ⚠️ Elicitation failed: %s, proceeding with plan", e)
-            approved_plan = plan_text
-
-    # Phase 3: Execute approved plan with research_deep
-    logger.info("   🚀 Executing approved plan...")
-    if ctx:
-        await ctx.report_progress(
-            progress=10,
-            total=100,
-            message="🚀 Starting research with approved plan...",
-        )
-
-    # Combine query with approved plan as format instructions
-    combined_instructions = (
-        f"Follow this research plan:\n\n{approved_plan}"
-        + (f"\n\nAdditional formatting:\n{format_instructions}" if format_instructions else "")
-    )
-
-    # Call research_deep directly (fastmcp decorator preserves the original function)
-    return await research_deep(
-        query=query,
-        format_instructions=combined_instructions,
-        ctx=ctx,
-    )
 
 
 # =============================================================================

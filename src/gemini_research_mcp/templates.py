@@ -706,33 +706,3 @@ def list_templates() -> list[dict[str, str]]:
         }
         for key, t in ALL_TEMPLATES.items()
     ]
-
-
-# =============================================================================
-# Plan Generation Template (for research_deep_planned)
-# =============================================================================
-
-RESEARCH_PLAN_PROMPT = """
-You are a research strategist. Create a focused research plan for the following query.
-
-**Query:** {query}
-
-Create a research plan with 4-7 specific goals. Each goal should be:
-- Action-oriented and specific
-- Tagged with task type prefix:
-  - [RESEARCH]: Information gathering via search
-  - [DELIVERABLE]: Synthesis/output generation (tables, summaries, reports)
-
-**Output Format:**
-Return a numbered list of research goals, each on its own line.
-Start RESEARCH tasks first, then DELIVERABLE tasks.
-
-Example:
-1. [RESEARCH] Investigate the current market size and growth trends
-2. [RESEARCH] Identify the top 5 competitors and their key differentiators  
-3. [RESEARCH] Analyze recent news and developments in the space
-4. [DELIVERABLE] Create a comparison table of key players
-5. [DELIVERABLE] Synthesize findings into an executive summary
-
-Be specific and actionable. Focus on what will answer the user's needs.
-"""

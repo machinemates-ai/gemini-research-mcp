@@ -8,10 +8,25 @@ vertexaisearch redirect URLs. This module extracts and resolves them.
 from __future__ import annotations
 
 import re
+from urllib.parse import urlparse
 
 import httpx
 
+from gemini_research_mcp.content import get_with_safe_redirects
 from gemini_research_mcp.types import DeepResearchResult, ParsedCitation
+
+TRUSTED_REDIRECT_HOSTS: frozenset[str] = frozenset({"vertexaisearch.cloud.google.com"})
+
+
+def is_trusted_redirect_url(redirect_url: str) -> bool:
+    """Return True when a redirect URL comes from a trusted Google redirect host."""
+    try:
+        parsed = urlparse(redirect_url)
+    except Exception:
+        return False
+
+    hostname = parsed.hostname.lower() if parsed.hostname else ""
+    return parsed.scheme in {"http", "https"} and hostname in TRUSTED_REDIRECT_HOSTS
 
 
 async def resolve_redirect_url(
@@ -28,9 +43,13 @@ async def resolve_redirect_url(
     Returns:
         Tuple of (resolved_url, page_title)
     """
+    if not is_trusted_redirect_url(redirect_url):
+        return None, None
+
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
-            response = await client.get(redirect_url)
+        async with httpx.AsyncClient(follow_redirects=False, timeout=timeout) as client:
+            response = await get_with_safe_redirects(client, redirect_url)
+            response.raise_for_status()
             resolved_url = str(response.url) if str(response.url) != redirect_url else None
 
             # Try to extract title from HTML
@@ -57,7 +76,7 @@ async def resolve_redirect_url(
 
             return resolved_url, title
 
-    except httpx.RequestError:
+    except (httpx.RequestError, httpx.HTTPStatusError, ValueError):
         return None, None
 
 
@@ -139,13 +158,15 @@ async def resolve_citation_urls(
 ) -> list[ParsedCitation]:
     """Resolve all redirect URLs in citations to get real destination URLs and page titles."""
     for citation in citations:
-        if citation.redirect_url and "vertexaisearch" in citation.redirect_url:
+        if citation.redirect_url and is_trusted_redirect_url(citation.redirect_url):
             url, title = await resolve_redirect_url(citation.redirect_url, timeout)
             citation.url = url
             citation.title = citation.domain if is_blocked_page_title(title) else title
 
             if not citation.url:
                 citation.url = f"https://{citation.domain}"
+        elif citation.redirect_url and "vertexaisearch" in citation.redirect_url.lower():
+            citation.url = f"https://{citation.domain}"
     return citations
 
 

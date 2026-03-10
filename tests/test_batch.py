@@ -31,11 +31,17 @@ TEST_QUERIES = [
     },
     {
         "id": "medium",
-        "query": "Compare FHIR R4 and OMOP CDM for healthcare data interoperability. What are the key differences?",
+        "query": (
+            "Compare FHIR R4 and OMOP CDM for healthcare data interoperability. "
+            "What are the key differences?"
+        ),
     },
     {
         "id": "complex",
-        "query": "Comprehensive comparison of OMOP CDM vs FHIR R4: data models, use cases, tooling, and migration strategies",
+        "query": (
+            "Comprehensive comparison of OMOP CDM vs FHIR R4: data models, "
+            "use cases, tooling, and migration strategies"
+        ),
     },
 ]
 
@@ -108,7 +114,12 @@ async def run_single_test(query_info: dict, client: genai.Client, start_time: fl
                             thought_text = getattr(content, 'text', None)
                             if thought_text:
                                 thinking_summaries.append(thought_text)
-                                log(f"   🧠 Thought {len(thinking_summaries)}: {thought_text[:60]}...", start_time)
+                                thought_preview = thought_text[:60]
+                                log(
+                                    f"   🧠 Thought {len(thinking_summaries)}: "
+                                    f"{thought_preview}...",
+                                    start_time,
+                                )
                     elif delta_type == 'text':
                         content = getattr(delta, 'content', None)
                         if content:
@@ -201,7 +212,11 @@ async def run_single_test(query_info: dict, client: genai.Client, start_time: fl
     result["end_time"] = datetime.now().isoformat()
     
     status_emoji = "✅" if final_status == "completed" and final_text else "❌"
-    log(f"{status_emoji} Test '{query_id}' complete: {elapsed:.1f}s, {len(final_text)} chars, status={final_status}", start_time)
+    log(
+        f"{status_emoji} Test '{query_id}' complete: {elapsed:.1f}s, "
+        f"{len(final_text)} chars, status={final_status}",
+        start_time,
+    )
     
     return result
 

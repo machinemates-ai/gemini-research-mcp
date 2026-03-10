@@ -13,7 +13,7 @@ import os
 import socket
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
@@ -138,6 +138,8 @@ def validate_proxy_url(proxy_url: str) -> tuple[bool, str]:
 # HTTP client configuration
 FETCH_TIMEOUT = 15.0
 MAX_RESPONSE_SIZE = 10 * 1024 * 1024  # 10MB max
+MAX_REDIRECTS = 5
+REDIRECT_STATUS_CODES = (301, 302, 303, 307, 308)
 
 # User agent for web requests
 USER_AGENT = (
@@ -160,6 +162,51 @@ class FetchResult:
     is_truncated: bool = False
     total_content_length: int = 0
     error: str | None = None
+
+
+def _get_redirect_target(response: httpx.Response) -> str | None:
+    """Return the absolute redirect target for a response, if any."""
+    if response.status_code not in REDIRECT_STATUS_CODES:
+        return None
+
+    location = response.headers.get("location")
+    if not isinstance(location, str) or not location:
+        return None
+
+    return urljoin(str(response.url), location)
+
+
+async def get_with_safe_redirects(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    max_redirects: int = MAX_REDIRECTS,
+) -> httpx.Response:
+    """Fetch a URL while validating every redirect target against SSRF rules."""
+    current_url = url
+    visited_urls = {url}
+    redirects_followed = 0
+
+    while True:
+        response = await client.get(current_url)
+
+        redirect_target = _get_redirect_target(response)
+        if redirect_target is None:
+            return response
+
+        redirects_followed += 1
+        if redirects_followed > max_redirects:
+            raise ValueError(f"Too many redirects (max: {max_redirects})")
+
+        if redirect_target in visited_urls:
+            raise ValueError("Redirect loop detected")
+
+        is_valid, error_msg = validate_url(redirect_target)
+        if not is_valid:
+            raise ValueError(f"Unsafe redirect blocked: {error_msg}")
+
+        visited_urls.add(redirect_target)
+        current_url = redirect_target
 
 
 async def check_robots_txt(
@@ -196,11 +243,11 @@ async def check_robots_txt(
     try:
         async with httpx.AsyncClient(
             timeout=ROBOTS_TIMEOUT,
-            follow_redirects=True,
+            follow_redirects=False,
             headers={"User-Agent": user_agent},
             proxy=proxy_url,
         ) as client:
-            response = await client.get(robots_url)
+            response = await get_with_safe_redirects(client, robots_url)
 
         if response.status_code >= 400:
             _ROBOTS_CACHE[origin] = None
@@ -316,12 +363,13 @@ async def fetch_webpage(
     try:
         async with httpx.AsyncClient(
             timeout=FETCH_TIMEOUT,
-            follow_redirects=True,
+            follow_redirects=False,
             headers={"User-Agent": USER_AGENT},
             proxy=effective_proxy_url,
         ) as client:
-            response = await client.get(url)
+            response = await get_with_safe_redirects(client, url)
             response.raise_for_status()
+            response_url = str(response.url)
 
             # Check content length
             content_length = response.headers.get("content-length")
@@ -373,7 +421,7 @@ async def fetch_webpage(
         # Configure for Markdown output
         extracted = trafilatura.extract(
             html,
-            url=url,
+            url=response_url,
             output_format="markdown",
             include_links=True,
             include_images=False,
@@ -397,7 +445,7 @@ async def fetch_webpage(
             logger.info("   ✅ Extracted %d words via trafilatura", word_count)
 
             return FetchResult(
-                url=url,
+                url=response_url,
                 title=title,
                 content=content,
                 word_count=word_count,
@@ -465,7 +513,7 @@ async def fetch_webpage(
         logger.info("   ✅ Basic extraction: %d words", word_count)
 
         return FetchResult(
-            url=url,
+            url=response_url,
             title=parser.title,
             content=content,
             word_count=word_count,
@@ -488,6 +536,7 @@ __all__ = [
     "fetch_webpage",
     "check_robots_txt",
     "FetchResult",
+    "get_with_safe_redirects",
     "validate_url",
     "validate_proxy_url",
     "is_private_ip",

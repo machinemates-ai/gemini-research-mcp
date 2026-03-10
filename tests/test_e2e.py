@@ -10,12 +10,6 @@ import os
 
 import pytest
 
-# Skip all tests in this module if no API key
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("GEMINI_API_KEY"),
-    reason="GEMINI_API_KEY not set",
-)
-
 
 @pytest.fixture
 def api_available():
@@ -73,6 +67,10 @@ class TestFetchWebpageE2E:
         assert "Extracted" in result or len(result) > 100, "Should have content"
 
 
+@pytest.mark.skipif(
+    not os.environ.get("GEMINI_API_KEY"),
+    reason="GEMINI_API_KEY not set",
+)
 class TestResearchWebE2E:
     """End-to-end tests for research_web (quick grounded search)."""
 
@@ -94,8 +92,8 @@ class TestResearchWebE2E:
 
     @pytest.mark.asyncio
     @pytest.mark.e2e
-    async def test_thinking_levels(self):
-        """Different thinking levels should work."""
+    async def test_thinking_level_parameter_is_backward_compatible(self):
+        """Legacy thinking_level inputs should still be accepted by quick_research."""
         from gemini_research_mcp.quick import quick_research
 
         for level in ["minimal", "low", "medium", "high"]:
@@ -206,7 +204,7 @@ class TestMCPToolsE2E:
 
     @pytest.mark.asyncio
     @pytest.mark.e2e
-    @pytest.mark.timeout(1200)  # 20 minute timeout for deep research (max is 60 min per Google docs)
+    @pytest.mark.timeout(1200)  # 20 minute timeout; Google docs allow up to 60 minutes
     async def test_research_deep_tool_starts(self):
         """research_deep MCP tool should start (test stream initiation only).
 

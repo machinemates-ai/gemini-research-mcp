@@ -7,7 +7,9 @@ Provides fast web research with citations in 5-30 seconds.
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 from google import genai
 from google.genai.types import (
@@ -20,7 +22,6 @@ from google.genai.types import (
 from pydantic import BaseModel, Field
 
 from gemini_research_mcp.config import (
-    DEFAULT_THINKING_LEVEL,
     LOGGER_NAME,
     default_system_prompt,
     get_api_key,
@@ -46,6 +47,32 @@ THINKING_LEVEL_MAP = {
 def _get_thinking_level(level: str) -> ThinkingLevel:
     """Convert string level to ThinkingLevel enum."""
     return THINKING_LEVEL_MAP.get(level.lower(), ThinkingLevel.HIGH)
+
+
+def _extract_sources_from_text(text: str) -> list[Source]:
+    """Extract markdown or bare URLs from response text when grounding metadata is absent."""
+    sources: list[Source] = []
+    seen_uris: set[str] = set()
+
+    for title, uri in re.findall(r"\[([^\]]+)\]\((https?://[^)\s]+)\)", text):
+        cleaned_uri = uri.strip()
+        if cleaned_uri in seen_uris:
+            continue
+        seen_uris.add(cleaned_uri)
+        sources.append(Source(uri=cleaned_uri, title=title.strip() or cleaned_uri))
+
+    if sources:
+        return sources
+
+    for uri in re.findall(r"https?://[^\s)>\]]+", text):
+        cleaned_uri = uri.rstrip(".,)")
+        if cleaned_uri in seen_uris:
+            continue
+        seen_uris.add(cleaned_uri)
+        hostname = urlparse(cleaned_uri).netloc or cleaned_uri
+        sources.append(Source(uri=cleaned_uri, title=hostname))
+
+    return sources
 
 
 def _extract_sources(response: GenerateContentResponse) -> tuple[list[Source], list[str]]:
@@ -77,6 +104,9 @@ def _extract_sources(response: GenerateContentResponse) -> tuple[list[Source], l
                     )
                 )
 
+    if not sources and response.text:
+        sources = _extract_sources_from_text(response.text)
+
     return sources, queries
 
 
@@ -84,7 +114,7 @@ async def quick_research(
     query: str,
     *,
     model: str | None = None,
-    thinking_level: str = DEFAULT_THINKING_LEVEL,
+    thinking_level: str | None = None,
     system_instruction: str | None = None,
     include_thoughts: bool = False,
 ) -> ResearchResult:
@@ -96,8 +126,9 @@ async def quick_research(
 
     Args:
         query: Research question or topic
-        model: Gemini model (default: gemini-3-flash-preview)
-        thinking_level: Thinking depth: 'minimal', 'low', 'medium', 'high' (default)
+        model: Gemini model (default: gemini-3.1-pro-preview)
+        thinking_level: Accepted for backward compatibility but ignored; quick research
+            always uses high thinking
         system_instruction: Optional system prompt
         include_thoughts: If True, include thinking summary in result
 
@@ -106,12 +137,17 @@ async def quick_research(
     """
     client = genai.Client(api_key=get_api_key())
     model = model or get_model()
-    level = _get_thinking_level(thinking_level)
+
+    if thinking_level and thinking_level.lower() != "high":
+        logger.info(
+            "Ignoring requested thinking level '%s'; quick_research uses fixed high thinking",
+            thinking_level,
+        )
 
     config = GenerateContentConfig(
         tools=[Tool(google_search=GoogleSearch())],
         thinking_config=ThinkingConfig(
-            thinking_level=level,
+            thinking_level=ThinkingLevel.HIGH,
             include_thoughts=include_thoughts,
         ),
         system_instruction=system_instruction or default_system_prompt(),

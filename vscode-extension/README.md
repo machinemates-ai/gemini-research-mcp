@@ -5,6 +5,7 @@ AI-powered research tools for GitHub Copilot Chat, powered by Google Gemini.
 ## Features
 
 - **🔎 Quick Research** (`research_web`): Fast web search with Gemini grounding (5-30 seconds)
+- **🌐 Read URL** (`fetch_webpage`): Extract clean Markdown from a specific public URL
 - **🔬 Deep Research** (`research_deep`): Comprehensive autonomous research agent (3-20 minutes)
 - **💬 Follow-up** (`research_followup`): Continue conversation with previous research
 - **🔄 Resume** (`resume_research`): Recover interrupted research sessions
@@ -23,6 +24,7 @@ AI-powered research tools for GitHub Copilot Chat, powered by Google Gemini.
 @workspace research the competition for our product
 @workspace do a deep dive on React Server Components vs Next.js App Router
 @workspace what's the latest on the OpenAI o3 model?
+@workspace read this URL and summarize it: https://example.com/blog-post
 ```
 
 ## Requirements

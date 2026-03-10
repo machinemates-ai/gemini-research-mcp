@@ -4,6 +4,7 @@ Unit tests for content.py - SSRF protection and content extraction.
 These tests run without network access using mocks where needed.
 """
 
+import httpx
 import pytest
 
 from gemini_research_mcp.content import (
@@ -309,6 +310,7 @@ class TestFetchWebpageAsync:
             status_code = 200
             headers: dict[str, str] = {}
             text = "<html><head><title>T</title></head><body><p>Hello world.</p></body></html>"
+            url = httpx.URL("https://example.com")
 
             def raise_for_status(self) -> None:
                 return None
@@ -331,10 +333,164 @@ class TestFetchWebpageAsync:
 
         monkeypatch.setattr(content, "validate_url", lambda _: (True, ""))
         monkeypatch.setattr(content, "check_robots_txt", always_true)
-        monkeypatch.setattr(content.httpx, "AsyncClient", MockClient)
+        monkeypatch.setattr(httpx, "AsyncClient", MockClient)
 
         proxy = "http://proxy.example.com:3128"
         result = await content.fetch_webpage("https://example.com", proxy_url=proxy)
 
         assert result.error is None
         assert captured_proxy["value"] == proxy
+
+    @pytest.mark.asyncio
+    async def test_proxy_url_env_fallback(self, monkeypatch: pytest.MonkeyPatch):
+        """FETCH_PROXY_URL should be used when proxy_url is omitted."""
+        import gemini_research_mcp.content as content
+
+        captured_proxy: dict[str, str | None] = {"value": None}
+
+        class MockResponse:
+            status_code = 200
+            headers: dict[str, str] = {}
+            text = "<html><head><title>T</title></head><body><p>Hello world.</p></body></html>"
+            url = httpx.URL("https://example.com")
+
+            def raise_for_status(self) -> None:
+                return None
+
+        class MockClient:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                captured_proxy["value"] = kwargs.get("proxy")  # type: ignore[assignment]
+
+            async def __aenter__(self) -> "MockClient":
+                return self
+
+            async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+                return None
+
+            async def get(self, url: str) -> MockResponse:
+                return MockResponse()
+
+        async def always_true(*args: object, **kwargs: object) -> bool:
+            return True
+
+        monkeypatch.setattr(content, "validate_url", lambda _: (True, ""))
+        monkeypatch.setattr(content, "check_robots_txt", always_true)
+        monkeypatch.setattr(httpx, "AsyncClient", MockClient)
+        monkeypatch.setenv("FETCH_PROXY_URL", "http://proxy.example.com:3128")
+
+        result = await content.fetch_webpage("https://example.com")
+
+        assert result.error is None
+        assert captured_proxy["value"] == "http://proxy.example.com:3128"
+
+    @pytest.mark.asyncio
+    async def test_safe_redirects_follow_public_target(self, monkeypatch: pytest.MonkeyPatch):
+        """Public redirect targets should be followed after validation."""
+        import gemini_research_mcp.content as content
+
+        requests: list[str] = []
+
+        class MockResponse:
+            def __init__(
+                self,
+                status_code: int,
+                url: str,
+                *,
+                headers: dict[str, str] | None = None,
+                text: str = "",
+            ) -> None:
+                self.status_code = status_code
+                self.url = httpx.URL(url)
+                self.headers = headers or {}
+                self.text = text
+                self.reason_phrase = "OK"
+
+            def raise_for_status(self) -> None:
+                return None
+
+        class MockClient:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                pass
+
+            async def __aenter__(self) -> "MockClient":
+                return self
+
+            async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+                return None
+
+            async def get(self, url: str) -> MockResponse:
+                requests.append(url)
+                if url == "https://example.com/start":
+                    return MockResponse(302, url, headers={"location": "/final"})
+                return MockResponse(
+                    200,
+                    url,
+                    text=(
+                        "<html><head><title>Final</title></head>"
+                        "<body><p>Hello world.</p></body></html>"
+                    ),
+                )
+
+        async def always_true(*args: object, **kwargs: object) -> bool:
+            return True
+
+        monkeypatch.setattr(content, "check_robots_txt", always_true)
+        monkeypatch.setattr(httpx, "AsyncClient", MockClient)
+
+        result = await content.fetch_webpage("https://example.com/start")
+
+        assert result.error is None
+        assert requests == ["https://example.com/start", "https://example.com/final"]
+        assert result.url == "https://example.com/final"
+
+    @pytest.mark.asyncio
+    async def test_unsafe_redirect_target_is_blocked(self, monkeypatch: pytest.MonkeyPatch):
+        """Redirects to private/internal targets should be blocked before the follow-up request."""
+        import gemini_research_mcp.content as content
+
+        requests: list[str] = []
+
+        class MockResponse:
+            def __init__(self, status_code: int, url: str, headers: dict[str, str]) -> None:
+                self.status_code = status_code
+                self.url = httpx.URL(url)
+                self.headers = headers
+                self.text = ""
+                self.reason_phrase = "Found"
+
+            def raise_for_status(self) -> None:
+                return None
+
+        class MockClient:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                pass
+
+            async def __aenter__(self) -> "MockClient":
+                return self
+
+            async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+                return None
+
+            async def get(self, url: str) -> MockResponse:
+                requests.append(url)
+                return MockResponse(302, url, headers={"location": "http://127.0.0.1/admin"})
+
+        async def always_true(*args: object, **kwargs: object) -> bool:
+            return True
+
+        def fake_validate_url(url: str) -> tuple[bool, str]:
+            if url == "https://example.com":
+                return True, ""
+            if url == "http://127.0.0.1/admin":
+                return False, "SSRF blocked: 127.0.0.1 resolves to private/internal address"
+            return True, ""
+
+        monkeypatch.setattr(content, "validate_url", fake_validate_url)
+        monkeypatch.setattr(content, "check_robots_txt", always_true)
+        monkeypatch.setattr(httpx, "AsyncClient", MockClient)
+
+        result = await content.fetch_webpage("https://example.com")
+
+        assert result.error is not None
+        assert "Unsafe redirect blocked" in result.error
+        assert requests == ["https://example.com"]

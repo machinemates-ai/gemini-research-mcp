@@ -4,10 +4,13 @@ Tests citation parsing from Deep Research reports.
 Run with: uv run pytest tests/test_citations.py -v
 """
 
+import pytest
 
 from gemini_research_mcp.citations import (
     extract_citations_from_text,
     is_blocked_page_title,
+    is_trusted_redirect_url,
+    resolve_citation_urls,
 )
 from gemini_research_mcp.types import ParsedCitation
 
@@ -182,5 +185,68 @@ class TestCitationUrlField:
         # Simulate resolution failure: set URL to domain
         if not citation.url:
             citation.url = f"https://{citation.domain}"
-        
+
         assert citation.url == "https://example.com"
+
+
+class TestTrustedRedirectUrls:
+    """Test allowlisting for citation redirect resolution."""
+
+    def test_vertexai_redirect_host_allowed(self):
+        """The canonical Google redirect host should be trusted."""
+        assert is_trusted_redirect_url(
+            "https://vertexaisearch.cloud.google.com/redirect?url=https://example.com"
+        )
+
+    def test_lookalike_redirect_host_blocked(self):
+        """Lookalike hosts should not be trusted just because they contain the keyword."""
+        assert not is_trusted_redirect_url(
+            "https://vertexaisearch.cloud.google.com.evil.example/redirect?url=https://example.com"
+        )
+
+
+class TestResolveCitationUrls:
+    """Test redirect resolution fallbacks and allowlisting."""
+
+    @pytest.mark.asyncio
+    async def test_untrusted_vertexai_lookalike_falls_back_to_domain(self):
+        """Suspicious redirect hosts should be replaced with the citation domain URL."""
+        citations = [
+            ParsedCitation(
+                number=1,
+                domain="example.com",
+                redirect_url=(
+                    "https://vertexaisearch.cloud.google.com.evil.example/"
+                    "redirect?url=https://example.com"
+                ),
+            )
+        ]
+
+        resolved = await resolve_citation_urls(citations)
+
+        assert resolved[0].url == "https://example.com"
+
+    @pytest.mark.asyncio
+    async def test_failed_trusted_redirect_resolution_falls_back_to_domain(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Trusted redirect failures should still leave a safe public URL in the citation."""
+        import gemini_research_mcp.citations as citations_module
+
+        async def fail_redirect(*args: object, **kwargs: object) -> object:
+            raise ValueError("Unsafe redirect blocked")
+
+        monkeypatch.setattr(citations_module, "get_with_safe_redirects", fail_redirect)
+
+        citations = [
+            ParsedCitation(
+                number=1,
+                domain="example.com",
+                redirect_url="https://vertexaisearch.cloud.google.com/redirect?url=https://example.com",
+            )
+        ]
+
+        resolved = await resolve_citation_urls(citations)
+
+        assert resolved[0].url == "https://example.com"
