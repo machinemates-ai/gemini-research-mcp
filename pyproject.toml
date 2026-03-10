@@ -108,6 +108,10 @@ addopts = "-m 'not e2e'"
 strict = true
 python_version = "3.12"
 
+[[tool.mypy.overrides]]
+module = ["protego"]
+ignore_missing_imports = true
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

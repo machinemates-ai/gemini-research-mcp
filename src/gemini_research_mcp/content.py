@@ -232,7 +232,7 @@ async def check_robots_txt(
             return bool(parser.can_fetch(user_agent, url))
 
     try:
-        from protego import Protego  # type: ignore[import-not-found]
+        from protego import Protego
     except ImportError:
         logger.info("   ℹ️ protego not installed, skipping robots.txt check")
         _ROBOTS_CACHE[origin] = None
