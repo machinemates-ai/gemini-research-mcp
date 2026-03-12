@@ -2,9 +2,9 @@
   "manifest_version": "0.4",
   "name": "gemini-research-mcp",
   "display_name": "Gemini Research",
-  "version": "0.4.0",
-  "description": "AI-powered research using Gemini: quick grounded search, URL extraction, and Deep Research",
-  "long_description": "MCP server providing AI-powered research capabilities using Google Gemini:\n\n- **research_web**: Fast web research with Gemini grounding (5-30 seconds)\n- **fetch_webpage**: Read and extract clean Markdown from a specific URL\n- **research_deep**: Comprehensive autonomous research agent (3-20 minutes)\n- **research_followup**: Continue conversation with previous deep research sessions\n- **resume_research**: Recover interrupted or in-progress research sessions\n- **list_research_sessions**: List previous research sessions\n- **list_format_templates**: Browse report format templates\n- **export_research_session**: Export completed research to Markdown, JSON, or Word (DOCX)",
+  "version": "0.13.0",
+  "description": "AI-powered research using Gemini with FastMCP 3.1 BM25 tool search and Deep Research",
+  "long_description": "MCP server providing AI-powered research capabilities using Google Gemini with a FastMCP 3.1 BM25 tool-search surface:\n\n- **research_web**: Fast web research with Gemini grounding (5-30 seconds)\n- **research_deep**: Comprehensive autonomous research agent (3-20 minutes)\n- **search_tools**: Discover utility tools for URL reading, templates, sessions, follow-up, resume, and export\n- **call_tool**: Execute a discovered utility tool by name\n\nUtility tools remain directly callable for clients that already know the tool name.",
   "author": {
     "name": "Guillaume Fortaine",
     "email": "guillaume.fortaine+github@machinemates.ai",
@@ -38,28 +38,12 @@
       "description": "Comprehensive autonomous research agent (3-20 minutes). Use for research reports, competitive analysis, investigations."
     },
     {
-      "name": "fetch_webpage",
-      "description": "Read and extract clean Markdown content from a specific public URL."
+      "name": "search_tools",
+      "description": "Search the server's utility tools with a natural-language query and return full tool definitions."
     },
     {
-      "name": "research_followup",
-      "description": "Continue conversation with any previous deep research session."
-    },
-    {
-      "name": "resume_research",
-      "description": "Recover interrupted or in-progress research sessions."
-    },
-    {
-      "name": "list_research_sessions",
-      "description": "Returns JSON list of previous research sessions with queries and summaries."
-    },
-    {
-      "name": "list_format_templates",
-      "description": "Browse reusable report format templates for research outputs."
-    },
-    {
-      "name": "export_research_session",
-      "description": "Export completed research to Markdown, JSON, or Word (DOCX) format."
+      "name": "call_tool",
+      "description": "Execute a utility tool discovered through search_tools by providing its name and arguments."
     }
   ],
   "user_config": {

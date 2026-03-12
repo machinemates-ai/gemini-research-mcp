@@ -5,11 +5,8 @@ AI-powered research tools for GitHub Copilot Chat, powered by Google Gemini.
 ## Features
 
 - **🔎 Quick Research** (`research_web`): Fast web search with Gemini grounding (5-30 seconds)
-- **🌐 Read URL** (`fetch_webpage`): Extract clean Markdown from a specific public URL
 - **🔬 Deep Research** (`research_deep`): Comprehensive autonomous research agent (3-20 minutes)
-- **💬 Follow-up** (`research_followup`): Continue conversation with previous research
-- **🔄 Resume** (`resume_research`): Recover interrupted research sessions
-- **📤 Export** (`export_research_session`): Export to Markdown, JSON, or Word
+- **🧰 Research Utilities** (`search_tools` + `call_tool`): Discover URL reading, follow-up, resume, session, template, and export tools on demand
 
 ## Quick Start
 
@@ -19,6 +16,8 @@ AI-powered research tools for GitHub Copilot Chat, powered by Google Gemini.
 4. Open Copilot Chat and ask: "research the latest developments in quantum computing"
 
 ## Usage in Copilot Chat
+
+Copilot can discover the utility tools automatically through FastMCP's search transform, so prompts like URL reading, export, resume, and follow-up still work without exposing every tool up front.
 
 ```
 @workspace research the competition for our product

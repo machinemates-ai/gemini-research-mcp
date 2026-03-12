@@ -30,6 +30,7 @@ from typing import Annotated
 
 from fastmcp import Context, FastMCP
 from fastmcp.server.tasks.config import TaskConfig
+from fastmcp.server.transforms.search import BM25SearchTransform
 
 # Raw MCP types
 from mcp.types import (
@@ -50,7 +51,9 @@ from gemini_research_mcp.deep import (
     deep_research_stream,
     get_research_status,
 )
-from gemini_research_mcp.deep import research_followup as _research_followup
+from gemini_research_mcp.deep import (
+    research_followup as _research_followup,
+)
 from gemini_research_mcp.export import (
     ExportFormat,
     ExportResult,
@@ -175,11 +178,13 @@ mcp = FastMCP(
     instructions="""
 Gemini Research MCP Server - AI-powered research toolkit
 
-## Quick Lookup (research_web)
+## Always Visible Tools
+
+### Quick Lookup (research_web)
 Fast web research with Gemini grounding (5-30 seconds).
 Use for: fact-checking, current events, documentation, "what is", "how to".
 
-## Deep Research (research_deep)
+### Deep Research (research_deep)
 Comprehensive autonomous research agent (3-20 minutes).
 Use for: research reports, competitive analysis, "compare", "analyze", "investigate".
 - Automatically asks clarifying questions for vague queries
@@ -187,45 +192,30 @@ Use for: research reports, competitive analysis, "compare", "analyze", "investig
 - Returns comprehensive report with citations
 - Sessions are saved at START for resume support if interrupted
 
-## Follow-up (research_followup)
-Continue conversation with any previous deep research session.
-Use for: "elaborate", "clarify", "summarize", follow-up questions.
-- Automatically finds the matching session based on your question
-- No need to track interaction_ids manually
-- Sessions last 55 days (paid tier)
+## Discover Utility Tools With search_tools
+This server uses BM25 tool search to keep the visible tool list small.
+Use `search_tools` with a natural-language query to discover utility tools for:
+- reading and extracting webpage content
+- browsing reusable report templates
+- listing saved research sessions
+- resuming interrupted sessions
+- asking follow-up questions on prior research
+- exporting completed research
 
-## Fetch Webpage (fetch_webpage)
-Extract content from any URL as clean Markdown (sub-second).
-Use for: reading articles, documentation, blog posts, extracting linked content.
-- High-quality extraction via trafilatura (F1: 0.937)
-- SSRF protection (blocks private IPs, cloud metadata)
-- Falls back to basic HTML parsing if trafilatura unavailable
-
-## Resume Research (resume_research)
-Recover interrupted or in-progress research sessions.
-Use for: VS Code disconnections, network issues, checking ongoing research.
-- Lists sessions that can be resumed (in_progress/interrupted)
-- Checks Gemini API for completion status
-- Recovers completed reports that were interrupted during delivery
-
-## List Sessions (list_research_sessions_tool)
-Returns JSON list of previous research sessions with queries and summaries.
-Use to answer "what research did I do about X?" questions.
-Shows session status (completed, in_progress, failed, interrupted).
-
-## Export (export_research_session)
-Export completed research to Markdown, JSON, or Word (DOCX) format.
-Use for: sharing reports, archiving research, creating deliverables.
+Use `call_tool` to invoke a discovered tool by name with arguments.
+Clients that already know a hidden tool name can still call it directly.
 
 **Workflow:**
 - Simple questions → research_web
 - Complex questions → research_deep
-- Read a URL → fetch_webpage
-- VS Code disconnected during research? → resume_research
-- "What did I research about X?" → list_research_sessions
-- Continue old research → research_followup (auto-matches session)
-- Export for sharing → export_research_session
+- Need a utility tool → search_tools, then call_tool
 """,
+    transforms=[
+        BM25SearchTransform(
+            always_visible=["research_web", "research_deep"],
+            max_results=5,
+        )
+    ],
     lifespan=lifespan,
 )
 

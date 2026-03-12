@@ -8,10 +8,36 @@ Run with: uv run pytest tests/test_e2e_mcp_transport.py -v --tb=short
 These tests do NOT require GEMINI_API_KEY - they only validate the MCP protocol.
 """
 
+import json
+import os
 import subprocess
 import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
 
 import pytest
+from mcp.client.session import ClientSession
+
+
+@asynccontextmanager
+async def _gemini_stdio_session() -> AsyncIterator[ClientSession]:
+    """Open a real stdio MCP client session against the main server."""
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    repo_root = Path(__file__).resolve().parent.parent
+    server = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "gemini_research_mcp.server"],
+        cwd=str(repo_root),
+        env=dict(os.environ),
+    )
+
+    async with stdio_client(server) as (read_stream, write_stream):
+        session = ClientSession(read_stream, write_stream)
+        async with session:
+            await session.initialize()
+            yield session
 
 
 class TestMCPServerStartup:
@@ -53,7 +79,7 @@ class TestMCPToolRegistration:
 
     @pytest.mark.asyncio
     async def test_tools_registered(self):
-        """All expected tools should be registered."""
+        """Pinned tools and search meta-tools should be visible."""
         from gemini_research_mcp.server import mcp
 
         tools = await mcp.list_tools()
@@ -61,13 +87,9 @@ class TestMCPToolRegistration:
 
         expected_tools = {
             "research_web",
-            "fetch_webpage",
             "research_deep",
-            "list_format_templates",
-            "list_research_sessions",
-            "export_research_session",
-            "research_followup",
-            "resume_research",
+            "search_tools",
+            "call_tool",
         }
 
         for expected in expected_tools:
@@ -75,11 +97,11 @@ class TestMCPToolRegistration:
 
     @pytest.mark.asyncio
     async def test_tool_count(self):
-        """Should have expected number of tools."""
+        """Should expose pinned tools plus synthetic search tools."""
         from gemini_research_mcp.server import mcp
 
         tools = await mcp.list_tools()
-        assert len(tools) == 8, f"Expected 8 tools, got {len(tools)}"
+        assert len(tools) == 4, f"Expected 4 tools, got {len(tools)}"
 
     @pytest.mark.asyncio
     async def test_tools_have_descriptions(self):
@@ -90,6 +112,65 @@ class TestMCPToolRegistration:
         for tool in tools:
             assert tool.description, f"Tool {tool.name} missing description"
             assert len(tool.description) > 10, f"Tool {tool.name} description too short"
+
+
+class TestToolSearchOverStdio:
+    """Exercise the visible search surface over the MCP wire protocol."""
+
+    @pytest.mark.asyncio
+    async def test_list_tools_returns_search_surface(self) -> None:
+        async with _gemini_stdio_session() as session:
+            tools = await session.list_tools()
+
+        tool_names = {tool.name for tool in tools.tools}
+
+        assert tool_names == {
+            "research_web",
+            "research_deep",
+            "search_tools",
+            "call_tool",
+        }
+
+    @pytest.mark.asyncio
+    async def test_search_tools_discovers_fetch_webpage(self) -> None:
+        async with _gemini_stdio_session() as session:
+            result = await session.call_tool("search_tools", {"query": "fetch webpage"})
+
+        assert result.isError is False
+        assert result.structuredContent is not None
+
+        matches = result.structuredContent["result"]
+        fetch_tool = next(tool for tool in matches if tool["name"] == "fetch_webpage")
+
+        assert "url" in fetch_tool["inputSchema"]["properties"]
+
+    @pytest.mark.asyncio
+    async def test_call_tool_proxy_over_wire(self) -> None:
+        async with _gemini_stdio_session() as session:
+            result = await session.call_tool(
+                "call_tool",
+                {"name": "list_format_templates", "arguments": {}},
+            )
+
+        assert result.isError is False
+        assert result.structuredContent is not None
+
+        payload = json.loads(result.structuredContent["result"])
+
+        assert payload["count"] > 0
+        assert any(template["key"] == "executive_briefing" for template in payload["templates"])
+
+    @pytest.mark.asyncio
+    async def test_hidden_tool_direct_call_over_wire(self) -> None:
+        async with _gemini_stdio_session() as session:
+            result = await session.call_tool("list_format_templates", {})
+
+        assert result.isError is False
+        assert result.structuredContent is not None
+
+        payload = json.loads(result.structuredContent["result"])
+
+        assert payload["count"] > 0
 
 
 class TestMCPResourceRegistration:

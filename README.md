@@ -6,6 +6,8 @@
 
 MCP server for AI-powered research using **Gemini**. Fast grounded search, URL extraction, comprehensive Deep Research, and session management.
 
+FastMCP 3.1 now exposes a compact BM25 tool-search surface by default. Clients see `research_web`, `research_deep`, `search_tools`, and `call_tool`; utility tools such as URL reading, follow-up, resume, sessions, templates, and export are discovered on demand.
+
 ## Architecture
 
 ![Architecture](https://raw.githubusercontent.com/machinemates-ai/gemini-research-mcp/main/docs/architecture.png)
@@ -72,18 +74,31 @@ flowchart TB
 
 ## Tools
 
+### Client-Visible Tools
+
 | Tool | Description | Latency |
 |------|-------------|---------|
 | `research_web` | Fast web search with citations | 5-30 sec |
 | `research_deep` | Multi-step autonomous research (MCP Tasks) | 3-20 min |
+| `search_tools` | BM25 search across the server's utility tools | instant |
+| `call_tool` | Invoke a utility tool discovered through `search_tools` | instant |
+
+### Utility Tools Available via `search_tools`
+
+| Tool | Description | Latency |
+|------|-------------|---------|
+| `fetch_webpage` | Extract article content from a specific URL (SSRF-protected, chunkable) | 0.5-2 sec |
 | `resume_research` | Resume interrupted/in-progress sessions | instant |
 | `research_followup` | Continue conversation after research | 5-30 sec |
 | `list_research_sessions` | List saved research sessions | instant |
 | `list_format_templates` | Browse report format templates | instant |
 | `export_research_session` | Export to Markdown, JSON, or DOCX | instant |
-| `fetch_webpage` | Extract article content from a specific URL (SSRF-protected, chunkable) | 0.5-2 sec |
+
+Discovered utility tools remain directly callable for clients that already know the tool name.
 
 ### `fetch_webpage` Parameters
+
+`fetch_webpage` is discoverable through `search_tools` in the default server listing.
 
 The `fetch_webpage` tool supports chunked reading for large pages and optional proxy routing:
 
