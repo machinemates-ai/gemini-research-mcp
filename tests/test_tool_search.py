@@ -18,6 +18,8 @@ class TestToolSearchTransform:
         assert tool_names == {
             "research_web",
             "research_deep",
+            "resume_research",
+            "export_research_session",
             "search_tools",
             "call_tool",
         }
@@ -45,6 +47,8 @@ class TestToolSearchTransform:
 
         assert "research_web" not in matches
         assert "research_deep" not in matches
+        assert "resume_research" not in matches
+        assert "export_research_session" not in matches
 
     @pytest.mark.asyncio
     async def test_call_tool_proxy_invokes_hidden_tool(self) -> None:

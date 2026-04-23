@@ -79,7 +79,9 @@ flowchart TB
 | Tool | Description | Latency |
 |------|-------------|---------|
 | `research_web` | Fast web search with citations | 5-30 sec |
-| `research_deep` | Multi-step autonomous research (MCP Tasks) | 3-20 min |
+| `research_deep` | Multi-step autonomous research (**requires** MCP Tasks) | 3-20 min |
+| `resume_research` | Resume or check an interrupted `research_deep` session | instant |
+| `export_research_session` | Export a session to Markdown, JSON, or DOCX (disk-first) | instant |
 | `search_tools` | BM25 search across the server's utility tools | instant |
 | `call_tool` | Invoke a utility tool discovered through `search_tools` | instant |
 
@@ -88,11 +90,9 @@ flowchart TB
 | Tool | Description | Latency |
 |------|-------------|---------|
 | `fetch_webpage` | Extract article content from a specific URL (SSRF-protected, chunkable) | 0.5-2 sec |
-| `resume_research` | Resume interrupted/in-progress sessions | instant |
 | `research_followup` | Continue conversation after research | 5-30 sec |
 | `list_research_sessions` | List saved research sessions | instant |
 | `list_format_templates` | Browse report format templates | instant |
-| `export_research_session` | Export to Markdown, JSON, or DOCX | instant |
 
 Discovered utility tools remain directly callable for clients that already know the tool name.
 
@@ -247,15 +247,44 @@ To enable DOCX export, install with the `[docx]` extra:
 
 ### Downloading Files
 
-After running `export_research_session` with `format: "docx"`, the tool returns a resource URI:
+`export_research_session` is **disk-first**: the file is always written
+to disk and the absolute path is returned on the first line of the
+response text (e.g. `✅ **Saved to:** /…/report.docx`). This means any
+MCP client — GUI or headless — gets a usable file path back.
 
-```
-research://exports/{export_id}
+By default exports are written to `GEMINI_RESEARCH_EXPORT_DIR`
+(defaults to `~/.gemini-research/exports/`; falls back to the system
+temp dir if that location isn't writable). Override per-call with the
+`output_path` argument:
+
+```jsonc
+{
+  "name": "export_research_session",
+  "arguments": {
+    "interaction_id": "v1_...",
+    "format": "docx",
+    "output_path": "/absolute/or/relative/path/report.docx"
+  }
+}
 ```
 
-In **VS Code Copilot Chat**, you can:
-- **Click "Save"** on the resource attachment to download the `.docx` file
-- **Drag-and-drop** from the chat into your workspace
+When `output_path` is supplied, the parent directory must already
+exist (no silent `mkdir`). GUI hosts (e.g. VS Code Copilot Chat) also
+receive an `EmbeddedResource` attachment for native "Save As" —
+clients that can't render it can safely ignore it.
+
+### Client compatibility
+
+`research_deep` requires [MCP Tasks support](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks)
+(SEP-1732) on the client. Clients that do not advertise the `tasks`
+capability will receive a `-32600` error.
+
+Known client status:
+
+- **VS Code Copilot Chat / MCP Inspector / Claude Desktop** — supported.
+- **GitHub Copilot CLI** — tracked upstream at
+  [github/copilot-cli#2538](https://github.com/github/copilot-cli/issues/2538);
+  until that lands, use `research_web` from the CLI.
 
 ### Installation (pip/uv)
 

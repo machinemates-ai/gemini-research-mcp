@@ -26,6 +26,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Annotated
 
 from fastmcp import Context, FastMCP
@@ -45,7 +46,12 @@ from pydantic import AnyUrl, BaseModel, Field
 
 from gemini_research_mcp import __version__
 from gemini_research_mcp.citations import process_citations
-from gemini_research_mcp.config import LOGGER_NAME, get_deep_research_agent, get_model
+from gemini_research_mcp.config import (
+    LOGGER_NAME,
+    get_deep_research_agent,
+    get_export_dir,
+    get_model,
+)
 from gemini_research_mcp.content import fetch_webpage as _fetch_webpage
 from gemini_research_mcp.deep import (
     deep_research_stream,
@@ -185,12 +191,26 @@ Fast web research with Gemini grounding (5-30 seconds).
 Use for: fact-checking, current events, documentation, "what is", "how to".
 
 ### Deep Research (research_deep)
-Comprehensive autonomous research agent (3-20 minutes).
+Comprehensive autonomous research agent (3-20 minutes). **Requires MCP Tasks
+support on the client** (SEP-1732). Clients without Tasks capability will
+receive a `-32600` error — upgrade the client or use `research_web`.
 Use for: research reports, competitive analysis, "compare", "analyze", "investigate".
 - Automatically asks clarifying questions for vague queries
-- Runs as background task with progress updates
-- Returns comprehensive report with citations
-- Sessions are saved at START for resume support if interrupted
+- Streams progress via the Tasks channel
+- Returns a comprehensive report with citations
+- Sessions are persisted at the START so they can be recovered with
+  `resume_research` if the client disconnects mid-run
+
+### Resume Research (resume_research)
+Resume an interrupted or in-progress `research_deep` run. Also the way to
+list recoverable sessions when called without arguments.
+
+### Export Research (export_research_session)
+Save a completed session to disk as Word (`.docx`), Markdown, or JSON.
+**Writes to disk by default** (under `GEMINI_RESEARCH_EXPORT_DIR`, default
+`~/.gemini-research/exports/`); the absolute path is returned in the
+response. GUI clients additionally receive an embedded resource for
+"Save As".
 
 ## Discover Utility Tools With search_tools
 This server uses BM25 tool search to keep the visible tool list small.
@@ -198,21 +218,26 @@ Use `search_tools` with a natural-language query to discover utility tools for:
 - reading and extracting webpage content
 - browsing reusable report templates
 - listing saved research sessions
-- resuming interrupted sessions
 - asking follow-up questions on prior research
-- exporting completed research
 
 Use `call_tool` to invoke a discovered tool by name with arguments.
 Clients that already know a hidden tool name can still call it directly.
 
 **Workflow:**
-- Simple questions → research_web
-- Complex questions → research_deep
-- Need a utility tool → search_tools, then call_tool
+- Simple questions → `research_web`
+- Complex questions → `research_deep` (requires Tasks)
+- Run was interrupted → `resume_research`
+- Ready to hand off a report → `export_research_session(format="docx")`
+- Need another utility → `search_tools`, then `call_tool`
 """,
     transforms=[
         BM25SearchTransform(
-            always_visible=["research_web", "research_deep"],
+            always_visible=[
+                "research_web",
+                "research_deep",
+                "resume_research",
+                "export_research_session",
+            ],
             max_results=5,
         )
     ],
@@ -590,21 +615,35 @@ async def research_deep(
     ctx: Context | None = None,
 ) -> str:
     """
-    Comprehensive autonomous research agent. Takes 3-20 minutes.
+    Comprehensive autonomous research agent (3-20 minutes). Requires MCP
+    Tasks support on the client (SEP-1732) — without it, the call is
+    rejected with `-32600`. Use for: research reports, competitive
+    analysis, "compare X vs Y", "analyze", "investigate", literature
+    review, multi-source synthesis.
 
-    Use for: research reports, competitive analysis, "compare X vs Y", "analyze",
-    "investigate", literature review, multi-source synthesis.
+    For vague queries the tool automatically asks clarifying questions to
+    refine the scope before starting (when elicitation is available).
 
-    For vague queries, the tool automatically asks clarifying questions
-    to refine the research scope before starting (when elicitation is available).
+    The session is persisted **at the start** under a stable
+    `interaction_id`. If the client disconnects mid-run, call
+    `resume_research` with that id to recover; once complete, pipe the
+    result into `export_research_session(format="docx")` to save a Word
+    deliverable on disk.
 
     Args:
-        query: Research question or topic (can be vague - clarification is automatic)
+        query: Research question or topic (can be vague — clarification is
+            automatic).
         format_instructions: Optional report structure/tone guidance
-        file_search_store_names: Optional file stores for RAG over your own data
+            (e.g. "executive briefing", "comparison table", or a
+            registered template key — see `list_format_templates`).
+        file_search_store_names: Optional Gemini File Search stores to RAG
+            over your own data alongside the web.
 
     Returns:
-        Comprehensive research report with citations
+        Comprehensive research report with citations. The returned
+        `interaction_id` can be passed to `resume_research` (on
+        interruption) or `export_research_session` (to materialize the
+        report as DOCX/Markdown/JSON).
     """
     logger.info("🔬 research_deep: %s", query[:100])
     if format_instructions:
@@ -1085,20 +1124,29 @@ async def resume_research(
     ctx: Context | None = None,
 ) -> str:
     """
-    Resume interrupted or in-progress research sessions.
+    Resume an interrupted or in-progress `research_deep` session.
 
-    If VS Code disconnected or the research was interrupted, this tool can:
-    1. List all resumable sessions (in_progress or interrupted)
-    2. Check the status of a specific session and return results if completed
+    Use when a `research_deep` call was cut short (client disconnect,
+    transport error, cancellation) or when you want to check whether a
+    long-running session has since completed on Gemini's servers.
 
-    Sessions are saved at the START of research, so even if VS Code loses connection,
-    the research continues on Gemini's servers and can be retrieved later.
+    Because `research_deep` persists its session at the start, the
+    research continues on Gemini's side even when the MCP client goes
+    away — this tool retrieves the result once it's ready.
+
+    Call with no arguments to list recoverable sessions. Call with an
+    `interaction_id` (returned by the original `research_deep` call or by
+    `list_research_sessions`) to check a specific session's status; if it
+    has completed, the full report is returned. Hand the result off to
+    `export_research_session(format="docx")` to save the report to disk.
 
     Args:
-        interaction_id: Optional specific session to resume/check
+        interaction_id: Optional session to resume/check. Omit to list
+            recoverable sessions.
 
     Returns:
-        Status of resumable sessions or completed research results
+        JSON describing recoverable sessions, or the completed research
+        report for the given `interaction_id`.
     """
     logger.info("🔄 resume_research: id=%s", interaction_id)
 
@@ -1296,31 +1344,65 @@ async def export_research_session(
         str | None,
         "Optional: search for a session by query text instead of interaction_id",
     ] = None,
+    output_path: Annotated[
+        str | None,
+        (
+            "Filesystem path to save the exported file to. Absolute or relative "
+            "to the MCP server's working directory. If omitted, the file is "
+            "automatically written to GEMINI_RESEARCH_EXPORT_DIR "
+            "(default ~/.gemini-research/exports/) and the resolved path is "
+            "returned in the response. Parent directory must already exist "
+            "when an explicit path is supplied."
+        ),
+    ] = None,
 ) -> str | list[TextContent | EmbeddedResource]:
     """
-    Export a research session to Markdown, JSON, or Word (DOCX) format.
+    Save (export, download, archive) a completed research session to a file
+    on disk — Word (.docx), Markdown (.md), or JSON. Use this to recover
+    your report after a `research_deep` run completes or is interrupted,
+    and to convert reports into a shareable Word document.
 
-    Similar to Google's Deep Research export feature, this creates professional
-    documents suitable for sharing, archiving, or further editing.
+    **Disk-first contract.** The file is always written to disk, and the
+    absolute path is returned on the first line of the response as
+    `Saved to: <path>`. When `output_path` is omitted the file lands in
+    `GEMINI_RESEARCH_EXPORT_DIR` (default ``~/.gemini-research/exports/``).
+    An `EmbeddedResource` is still attached so GUI hosts can expose their
+    native "Save As" affordance.
+
+    Similar to Google's Deep Research export feature, the DOCX output is a
+    professional Word document suitable for sharing, archiving, or further
+    editing.
 
     Supported formats:
-    - **markdown**: Clean, readable .md file with full report and citations
-    - **json**: Machine-readable with all metadata (for programmatic use)
-    - **docx**: Professional Word document with proper formatting, headings, lists
+    - **docx**: Word document with headings, lists, and table of contents
+    - **markdown**: Clean `.md` file with full report and citations
+    - **json**: Machine-readable, all metadata preserved
+
+    Typical recovery flow:
+    1. `research_deep(...)` completes (or is resumed via `resume_research`).
+    2. `export_research_session(format="docx")` — no other arguments
+       needed; the path on disk is returned in the response text.
 
     Args:
-        interaction_id: Specific session ID to export (from list_research_sessions)
-        format: Output format - markdown, json, or docx
-        query: Search for session by query text (alternative to interaction_id)
+        interaction_id: Specific session ID (from `list_research_sessions`
+            or from the `research_deep` / `resume_research` response).
+        format: `"docx"`, `"markdown"`, or `"json"`.
+        query: Search for a session by query text (alternative to
+            `interaction_id`).
+        output_path: Optional explicit filesystem path. Parent directory
+            must exist. When omitted, a path under the export directory is
+            chosen automatically.
 
     Returns:
-        JSON with export details and resource URI for download
+        A text block containing ``Saved to: <absolute path>`` plus an
+        `EmbeddedResource` carrying the file bytes.
     """
     logger.info(
-        "📤 export_research_session: id=%s, format=%s, query=%s",
+        "📤 export_research_session: id=%s, format=%s, query=%s, output_path=%s",
         interaction_id,
         format,
         query[:30] if query else None,
+        output_path,
     )
 
     try:
@@ -1389,8 +1471,46 @@ async def export_research_session(
                 })
             session = sessions[0]
 
-        # Export
-        result = export_session(session, format)
+        # Export — default to disk-first when no output_path is supplied so
+        # clients that cannot render EmbeddedResource blobs (headless/CLI)
+        # still receive the file at a known location. GUI clients keep the
+        # EmbeddedResource for their native "Save As" affordance.
+        resolved_path: Path | None = None
+        auto_defaulted = False
+        if output_path is not None:
+            resolved_path = Path(output_path).expanduser().resolve()
+            if not resolved_path.parent.exists():
+                return json.dumps({
+                    "error": (
+                        f"Parent directory does not exist: {resolved_path.parent}"
+                    ),
+                    "hint": (
+                        "Create the directory first (e.g. `mkdir -p`) or pass a "
+                        "path whose parent already exists."
+                    ),
+                })
+        else:
+            # Compute deterministic default path inside the export directory.
+            # We need the result filename first — run the export without a
+            # path, then persist to disk ourselves and return the path.
+            auto_defaulted = True
+
+        if auto_defaulted:
+            result = export_session(session, format)
+            try:
+                export_dir = get_export_dir()
+                resolved_path = (export_dir / result.filename).resolve()
+                resolved_path.write_bytes(result.content)
+                logger.info(
+                    "📄 Auto-exported to %s (%s)", resolved_path, result.size_human
+                )
+            except OSError as write_err:
+                logger.warning(
+                    "Failed to write default export path: %s", write_err
+                )
+                resolved_path = None
+        else:
+            result = export_session(session, format, output_path=resolved_path)
 
         # Return EmbeddedResource for all formats to enable VS Code "Save As" button
         # Following the ElevenLabs MCP pattern: put filename in URI for browser-like save dialog
@@ -1428,15 +1548,27 @@ async def export_research_session(
         }
         emoji, label = format_info.get(result.format, ("📁", result.format.value.upper()))
 
-        # Return metadata as TextContent + file as EmbeddedResource
-        # This enables VS Code's native "Save As" functionality for all formats
+        # Return metadata as TextContent + file as EmbeddedResource.
+        # The "Saved to:" line is emitted first so headless/CLI clients that
+        # cannot render the EmbeddedResource blob can still locate the file
+        # on disk. GUI clients (e.g. VS Code) use the embedded resource for
+        # their native "Save As" affordance.
+        if resolved_path is not None:
+            saved_header = f"✅ **Saved to:** `{resolved_path}`\n\n"
+        else:
+            saved_header = (
+                "⚠️ **Not saved to disk** — file delivered via embedded "
+                "resource only. Re-run with an explicit `output_path` to "
+                "materialize the file.\n\n"
+            )
         metadata_text = (
+            f"{saved_header}"
             f"{emoji} **{label} Export Complete**\n\n"
             f"- **Filename:** {result.filename}\n"
             f"- **Size:** {result.size_human}\n"
             f"- **Session:** {session.query[:80]}\n"
             f"- **Resource URI:** {resource_uri}\n\n"
-            f"The file is attached below. Use 'Save As' to download."
+            f"The file is also attached below as an embedded resource."
         )
         text_content = TextContent(
             type="text",
@@ -1624,7 +1756,7 @@ def main() -> None:
 
     logger.info("🚀 Starting Gemini Research MCP Server v%s (MCP SDK)", __version__)
     logger.info("   Transport: stdio")
-    logger.info("   Task mode: enabled (MCP Tasks / SEP-1732)")
+    logger.info("   Task mode: optional (MCP Tasks / SEP-1732 when client supports it)")
 
     mcp.run(transport="stdio")
 

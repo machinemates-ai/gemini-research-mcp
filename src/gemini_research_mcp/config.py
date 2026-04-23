@@ -7,7 +7,9 @@ All configuration is loaded from environment variables with sensible defaults.
 from __future__ import annotations
 
 import os
+import tempfile
 from datetime import date
+from pathlib import Path
 
 from gemini_research_mcp.types import DeepResearchAgent
 
@@ -104,6 +106,46 @@ def get_deep_research_agent() -> DeepResearchAgent:
 def get_summary_model() -> str:
     """Get model for generating summaries (fast, cheap)."""
     return os.environ.get("GEMINI_SUMMARY_MODEL", DEFAULT_SUMMARY_MODEL)
+
+
+# =============================================================================
+# Export directory
+# =============================================================================
+
+DEFAULT_EXPORT_DIR = Path.home() / ".gemini-research" / "exports"
+
+
+def get_export_dir() -> Path:
+    """Return the directory where exports are written when no output_path is supplied.
+
+    Resolution order:
+    1. ``GEMINI_RESEARCH_EXPORT_DIR`` environment variable.
+    2. ``~/.gemini-research/exports/``.
+    3. System temp directory (fallback if neither above is writable).
+
+    The returned directory is guaranteed to exist and be writable.
+    """
+    candidates: list[Path] = []
+    custom = os.environ.get("GEMINI_RESEARCH_EXPORT_DIR")
+    if custom:
+        candidates.append(Path(custom).expanduser())
+    candidates.append(DEFAULT_EXPORT_DIR)
+    candidates.append(Path(tempfile.gettempdir()) / "gemini-research-exports")
+
+    for candidate in candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            # Confirm writability without leaving a file behind
+            probe = candidate / ".write-probe"
+            probe.touch()
+            probe.unlink()
+            return candidate.resolve()
+        except OSError:
+            continue
+
+    # Last resort: system temp (guaranteed writable on all supported platforms)
+    fallback = Path(tempfile.gettempdir())
+    return fallback.resolve()
 
 
 def is_retryable_error(error_msg: str) -> bool:

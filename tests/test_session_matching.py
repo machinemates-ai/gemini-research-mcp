@@ -398,3 +398,163 @@ class TestSessionMatchingConsistency:
                     assert "id" in d
                     assert "query" in d
                     assert "summary" in d
+
+
+# =============================================================================
+# export_research_session output_path Tests
+# =============================================================================
+
+
+class TestExportSessionOutputPath:
+    """Tests for the output_path parameter of export_research_session.
+
+    Rationale: headless MCP clients (Copilot CLI, CI) silently drop the binary
+    EmbeddedResource blob, so DOCX (and other) bytes are unreachable without a
+    server-side filesystem write. These tests pin down the contract.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("fmt", "ext", "magic"),
+        [
+            ("markdown", "md", b"# "),
+            ("json", "json", b"{"),
+            ("docx", "docx", b"PK\x03\x04"),
+        ],
+    )
+    async def test_output_path_writes_file(
+        self,
+        tmp_path,
+        quantum_session: ResearchSession,
+        fmt: str,
+        ext: str,
+        magic: bytes,
+    ) -> None:
+        """Each format writes bytes to output_path and still returns the embedded resource."""
+        from gemini_research_mcp.server import export_research_session
+
+        out = tmp_path / f"export.{ext}"
+
+        with patch(
+            "gemini_research_mcp.server.get_research_session",
+            return_value=quantum_session,
+        ):
+            result = await export_research_session(
+                interaction_id=quantum_session.interaction_id,
+                format=fmt,
+                output_path=str(out),
+            )
+
+        # File must be written to disk with the correct magic bytes
+        assert out.exists(), f"{fmt} export was not written to {out}"
+        assert out.read_bytes().startswith(magic), (
+            f"{fmt} file does not start with expected magic {magic!r}"
+        )
+        assert out.stat().st_size > 0
+
+        # Tool must still return [TextContent, EmbeddedResource]
+        assert isinstance(result, list)
+        assert len(result) == 2
+        text_content, embedded = result
+        assert "Saved to" in text_content.text
+        assert str(out.resolve()) in text_content.text
+        # EmbeddedResource bytes match disk bytes (backward compat preserved)
+        resource = embedded.resource
+        if hasattr(resource, "blob"):
+            import base64
+
+            assert base64.b64decode(resource.blob) == out.read_bytes()
+        else:
+            assert resource.text.encode("utf-8") == out.read_bytes()
+
+    @pytest.mark.asyncio
+    async def test_output_path_missing_parent_returns_error(
+        self,
+        tmp_path,
+        quantum_session: ResearchSession,
+    ) -> None:
+        """Missing parent directory returns an error JSON (no silent mkdir)."""
+        from gemini_research_mcp.server import export_research_session
+
+        bogus = tmp_path / "does-not-exist" / "out.docx"
+
+        with patch(
+            "gemini_research_mcp.server.get_research_session",
+            return_value=quantum_session,
+        ):
+            result = await export_research_session(
+                interaction_id=quantum_session.interaction_id,
+                format="docx",
+                output_path=str(bogus),
+            )
+
+        assert isinstance(result, str)
+        data = json.loads(result)
+        assert "error" in data
+        assert "does not exist" in data["error"]
+        assert "hint" in data
+        assert not bogus.exists()
+
+    @pytest.mark.asyncio
+    async def test_output_path_omitted_auto_writes_to_default_dir(
+        self,
+        quantum_session: ResearchSession,
+        tmp_path,
+        monkeypatch,
+    ) -> None:
+        """When output_path is None, the file is still written to disk.
+
+        This is the v0.13.0 disk-first contract: headless clients that
+        cannot render EmbeddedResource blobs must still get a usable file
+        path back, without needing to know about ``output_path``.
+        """
+        from gemini_research_mcp.server import export_research_session
+
+        monkeypatch.setenv("GEMINI_RESEARCH_EXPORT_DIR", str(tmp_path))
+
+        with patch(
+            "gemini_research_mcp.server.get_research_session",
+            return_value=quantum_session,
+        ):
+            result = await export_research_session(
+                interaction_id=quantum_session.interaction_id,
+                format="json",
+            )
+
+        assert isinstance(result, list)
+        text_content = result[0]
+        # "Saved to:" must be the first line so CLI hosts parse it easily.
+        assert text_content.text.lstrip().startswith("✅ **Saved to:**")
+        assert "Resource URI" in text_content.text
+
+        # File actually landed on disk under the configured export dir.
+        written = list(tmp_path.iterdir())
+        assert len(written) == 1
+        assert written[0].suffix == ".json"
+        assert written[0].stat().st_size > 0
+
+    @pytest.mark.asyncio
+    async def test_output_path_omitted_keeps_embedded_resource(
+        self,
+        quantum_session: ResearchSession,
+        tmp_path,
+        monkeypatch,
+    ) -> None:
+        """GUI clients still receive the EmbeddedResource alongside the path."""
+        from mcp.types import EmbeddedResource
+
+        from gemini_research_mcp.server import export_research_session
+
+        monkeypatch.setenv("GEMINI_RESEARCH_EXPORT_DIR", str(tmp_path))
+
+        with patch(
+            "gemini_research_mcp.server.get_research_session",
+            return_value=quantum_session,
+        ):
+            result = await export_research_session(
+                interaction_id=quantum_session.interaction_id,
+                format="json",
+            )
+
+        assert isinstance(result, list)
+        assert any(isinstance(item, EmbeddedResource) for item in result)
