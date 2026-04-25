@@ -307,9 +307,13 @@ async def deep_research_stream(
 
             if chunk.event_type == "content.delta":
                 delta = chunk.delta
-                if delta.type == "thought_summary":
-                    content = delta.content
-                    thought_text = content.text if hasattr(content, "text") else str(content)
+                delta_type = delta.get("type") if isinstance(delta, dict) else getattr(delta, "type", None)
+                if delta_type == "thought_summary":
+                    content = delta.get("content") if isinstance(delta, dict) else delta.content
+                    if isinstance(content, dict):
+                        thought_text = content.get("text") or str(content)
+                    else:
+                        thought_text = content.text if hasattr(content, "text") else str(content)
                     logger.debug("[%.1fs] 🧠 thought_summary", elapsed)
                     yield DeepResearchProgress(
                         event_type="thought",
@@ -317,11 +321,12 @@ async def deep_research_stream(
                         interaction_id=interaction_id,
                         event_id=last_event_id,
                     )
-                elif delta.type == "text":
-                    logger.debug("[%.1fs] 📝 text delta: %d chars", elapsed, len(delta.text))
+                elif delta_type == "text":
+                    delta_text = delta.get("text") if isinstance(delta, dict) else delta.text
+                    logger.debug("[%.1fs] 📝 text delta: %d chars", elapsed, len(delta_text or ""))
                     yield DeepResearchProgress(
                         event_type="text",
-                        content=delta.text,
+                        content=delta_text,
                         interaction_id=interaction_id,
                         event_id=last_event_id,
                     )
