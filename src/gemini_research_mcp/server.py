@@ -585,7 +585,7 @@ async def _maybe_clarify_query(
 
 @mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
-    task=TaskConfig(mode="required"),
+    task=TaskConfig(mode="optional"),
 )
 async def research_deep(
     query: Annotated[str, "Research question or topic to investigate thoroughly"],
