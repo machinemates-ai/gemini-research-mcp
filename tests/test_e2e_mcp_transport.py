@@ -63,6 +63,7 @@ class TestMCPToolRegistration:
             "research_web",
             "fetch_webpage",
             "research_deep",
+            "research_deep_max",
             "list_format_templates",
             "list_research_sessions",
             "export_research_session",
@@ -79,7 +80,7 @@ class TestMCPToolRegistration:
         from gemini_research_mcp.server import mcp
 
         tools = await mcp.list_tools()
-        assert len(tools) == 8, f"Expected 8 tools, got {len(tools)}"
+        assert len(tools) == 9, f"Expected 9 tools, got {len(tools)}"
 
     @pytest.mark.asyncio
     async def test_tools_have_descriptions(self):
@@ -265,4 +266,3 @@ class TestFastMCPDecorator:
         from gemini_research_mcp.server import research_deep
 
         assert research_deep.__name__ == "research_deep"
-

@@ -18,6 +18,7 @@ from gemini_research_mcp.export import (
     get_supported_formats,
 )
 from gemini_research_mcp.storage import ResearchSession
+from gemini_research_mcp.types import DeepResearchAgent
 
 DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
@@ -59,7 +60,7 @@ Quantum computing poses significant challenges to current cryptographic systems.
 2. [IBM Quantum Research](https://example.com/ibm)
 """,
         format_instructions="Create an executive briefing",
-        agent_name="deep-research-pro-preview-12-2025",
+        agent_name=DeepResearchAgent.DEEP_RESEARCH,
         duration_seconds=342.5,
         total_tokens=15000,
         tags=["security", "quantum", "cryptography"],

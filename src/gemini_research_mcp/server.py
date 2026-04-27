@@ -73,7 +73,7 @@ from gemini_research_mcp.storage import (
 from gemini_research_mcp.storage import (
     list_research_sessions as _list_sessions,
 )
-from gemini_research_mcp.types import DeepResearchError, DeepResearchResult
+from gemini_research_mcp.types import DeepResearchAgent, DeepResearchError, DeepResearchResult
 
 # Configure logging
 logger = logging.getLogger(LOGGER_NAME)
@@ -180,12 +180,19 @@ Fast web research with Gemini grounding (5-30 seconds).
 Use for: fact-checking, current events, documentation, "what is", "how to".
 
 ## Deep Research (research_deep)
-Comprehensive autonomous research agent (3-20 minutes).
-Use for: research reports, competitive analysis, "compare", "analyze", "investigate".
+Comprehensive autonomous research agent using the fast/default April 2026 agent (3-20 minutes).
+Use by default for: research reports, competitive analysis, "compare", "analyze", "investigate",
+interactive work, exploratory prompts, and latency/cost-sensitive synthesis.
 - Automatically asks clarifying questions for vague queries
 - Runs as background task with progress updates
 - Returns comprehensive report with citations
 - Sessions are saved at START for resume support if interrupted
+
+## Deep Research Max (research_deep_max)
+Maximum-comprehensiveness autonomous research agent. Use when the user explicitly says
+"Max", "deep research max", "exhaustive", "comprehensive", "due diligence",
+"market map", "literature review", "high stakes", "board-ready", "offline/nightly",
+or asks for maximum completeness over speed.
 
 ## Follow-up (research_followup)
 Continue conversation with any previous deep research session.
@@ -220,6 +227,7 @@ Use for: sharing reports, archiving research, creating deliverables.
 **Workflow:**
 - Simple questions → research_web
 - Complex questions → research_deep
+- Max/exhaustive/high-stakes research → research_deep_max
 - Read a URL → fetch_webpage
 - VS Code disconnected during research? → resume_research
 - "What did I research about X?" → list_research_sessions
@@ -583,21 +591,14 @@ async def _maybe_clarify_query(
 # =============================================================================
 
 
-@mcp.tool(
-    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
-    task=TaskConfig(mode="optional"),
-)
-async def research_deep(
-    query: Annotated[str, "Research question or topic to investigate thoroughly"],
-    format_instructions: Annotated[
-        str | None,
-        "Optional report format (e.g., 'executive briefing', 'comparison table')",
-    ] = None,
-    file_search_store_names: Annotated[
-        list[str] | None,
-        "Optional: Gemini File Search store names to search your own data alongside web",
-    ] = None,
+async def _run_deep_research_tool(
+    *,
+    query: str,
+    format_instructions: str | None = None,
+    file_search_store_names: list[str] | None = None,
     ctx: Context | None = None,
+    agent_name: DeepResearchAgent,
+    tool_name: str,
 ) -> str:
     """
     Comprehensive autonomous research agent. Takes 3-20 minutes.
@@ -616,7 +617,7 @@ async def research_deep(
     Returns:
         Comprehensive research report with citations
     """
-    logger.info("🔬 research_deep: %s", query[:100])
+    logger.info("🔬 %s (%s): %s", tool_name, agent_name.value, query[:100])
     if format_instructions:
         logger.info("   📝 Format: %s", format_instructions[:80])
     if file_search_store_names:
@@ -654,7 +655,7 @@ async def research_deep(
         await ctx.report_progress(
             progress=0,
             total=100,
-            message="Starting deep research...",
+            message=f"Starting {tool_name}...",
         )
 
     try:
@@ -669,6 +670,7 @@ async def research_deep(
             query=effective_query,
             format_instructions=effective_format,
             file_search_store_names=file_search_store_names,
+            agent_name=agent_name,
         ):
             if event.interaction_id:
                 interaction_id = event.interaction_id
@@ -688,7 +690,7 @@ async def research_deep(
                             query=effective_query,
                             title=initial_title,
                             format_instructions=format_instructions,
-                            agent_name=get_deep_research_agent(),
+                            agent_name=agent_name,
                             status=ResearchStatus.IN_PROGRESS,
                         )
                         session_saved = True
@@ -846,11 +848,85 @@ async def research_deep(
     except DeepResearchError:
         raise
     except Exception as e:
-        logger.exception("research_deep failed: %s", e)
+        logger.exception("%s failed: %s", tool_name, e)
         raise DeepResearchError(
             code="INTERNAL_ERROR",
             message=str(e),
         ) from e
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+    task=TaskConfig(mode="optional"),
+)
+async def research_deep(
+    query: Annotated[str, "Research question or topic to investigate thoroughly"],
+    format_instructions: Annotated[
+        str | None,
+        "Optional report format (e.g., 'executive briefing', 'comparison table')",
+    ] = None,
+    file_search_store_names: Annotated[
+        list[str] | None,
+        "Optional: Gemini File Search store names to search your own data alongside web",
+    ] = None,
+    ctx: Context | None = None,
+) -> str:
+    """
+    Comprehensive autonomous research agent. Takes 3-20 minutes.
+
+    Uses the fast/default April 2026 Deep Research agent. Use this by default for
+    interactive questions, exploratory research, competitive analysis, comparisons,
+    and latency/cost-sensitive multi-source synthesis.
+
+    For maximum-comprehensiveness research, use research_deep_max instead.
+
+    For vague queries, the tool automatically asks clarifying questions
+    to refine the research scope before starting (when elicitation is available).
+    """
+    return await _run_deep_research_tool(
+        query=query,
+        format_instructions=format_instructions,
+        file_search_store_names=file_search_store_names,
+        ctx=ctx,
+        agent_name=get_deep_research_agent(),
+        tool_name="research_deep",
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+    task=TaskConfig(mode="optional"),
+)
+async def research_deep_max(
+    query: Annotated[str, "Research question or topic to investigate with maximum depth"],
+    format_instructions: Annotated[
+        str | None,
+        "Optional report format (e.g., 'executive briefing', 'comparison table')",
+    ] = None,
+    file_search_store_names: Annotated[
+        list[str] | None,
+        "Optional: Gemini File Search store names to search your own data alongside web",
+    ] = None,
+    ctx: Context | None = None,
+) -> str:
+    """
+    Maximum-comprehensiveness autonomous research agent.
+
+    Use when the user explicitly says "Max", "deep research max", "exhaustive",
+    "comprehensive", "due diligence", "market map", "literature review",
+    "high stakes", "board-ready", "offline/nightly", or asks for maximum
+    completeness over speed.
+
+    For ordinary interactive research, use research_deep instead.
+    """
+    return await _run_deep_research_tool(
+        query=query,
+        format_instructions=format_instructions,
+        file_search_store_names=file_search_store_names,
+        ctx=ctx,
+        agent_name=DeepResearchAgent.DEEP_RESEARCH_MAX,
+        tool_name="research_deep_max",
+    )
 
 
 # =============================================================================
@@ -1494,7 +1570,7 @@ def get_research_models() -> str:
 
 ## Deep Research (research_deep)
 
-**Agent:** `{deep_agent}`
+**Agent:** `{deep_agent.value}`
 - **Latency:** 3-20 minutes (can take up to 60 min for complex topics)
 - **API:** Gemini Interactions API (Deep Research Agent)
 - **Best for:** Research reports, competitive analysis, literature reviews
@@ -1504,6 +1580,15 @@ def get_research_models() -> str:
   - Cited reports with sources
   - File search (RAG) with `file_search_store_names`
   - Format instructions for custom output structure
+
+## Deep Research Max (research_deep_max)
+
+**Agent:** `{DeepResearchAgent.DEEP_RESEARCH_MAX.value}`
+- **Latency:** Longer-running background research for maximum completeness
+- **API:** Gemini Interactions API (Deep Research Max agent)
+- **Best for:** Explicit Max requests, due diligence, market maps, literature reviews,
+  board-ready reports, offline/nightly research, and high-stakes synthesis
+- **Selection:** Use this when completeness matters more than speed/cost.
 
 ## Follow-up (research_followup)
 

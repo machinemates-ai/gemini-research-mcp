@@ -3,6 +3,7 @@
 AI-powered research using Gemini:
 - research_web: Fast grounded search (Gemini + Google Search)
 - research_deep: Comprehensive research (Deep Research Agent, requires MCP Tasks)
+- research_deep_max: Maximum-comprehensiveness Deep Research Max tool
 - research_followup: Continue conversation after research completes
 """
 
@@ -42,6 +43,7 @@ from gemini_research_mcp.types import (
     ParsedCitation,
     ResearchResult,
     Source,
+    parse_deep_research_agent,
 )
 
 __all__ = [
@@ -67,5 +69,6 @@ __all__ = [
     "process_citations",
     "quick_research",
     "research_followup",
+    "parse_deep_research_agent",
     "save_research_session",
 ]

@@ -7,6 +7,7 @@ Run with: uv run pytest tests/test_types.py -v
 import pytest
 
 from gemini_research_mcp.types import (
+    DeepResearchAgent,
     DeepResearchError,
     DeepResearchProgress,
     DeepResearchResult,
@@ -14,6 +15,7 @@ from gemini_research_mcp.types import (
     ParsedCitation,
     ResearchResult,
     Source,
+    parse_deep_research_agent,
 )
 
 
@@ -232,6 +234,38 @@ class TestDeepResearchProgress:
             event_id="evt_abc123",
         )
         assert progress.event_id == "evt_abc123"
+
+
+class TestDeepResearchAgent:
+    """Test Deep Research agent alias parsing."""
+
+    @pytest.mark.parametrize("alias", [
+        "fast",
+        "standard",
+        "regular",
+        "deep-research",
+        "deep-research-preview-04-2026",
+    ])
+    def test_fast_aliases(self, alias: str):
+        assert parse_deep_research_agent(alias) == DeepResearchAgent.DEEP_RESEARCH
+
+    @pytest.mark.parametrize("alias", [
+        "max",
+        "deep-research-max",
+        "deep-research-max-preview-04-2026",
+    ])
+    def test_max_aliases(self, alias: str):
+        assert parse_deep_research_agent(alias) == DeepResearchAgent.DEEP_RESEARCH_MAX
+
+    def test_legacy_exact_id_still_deserializes(self):
+        assert (
+            parse_deep_research_agent("deep-research-pro-preview-12-2025")
+            == DeepResearchAgent.DEEP_RESEARCH_PRO_LEGACY
+        )
+
+    def test_invalid_alias_raises(self):
+        with pytest.raises(ValueError, match="Invalid Deep Research agent"):
+            parse_deep_research_agent("not-a-real-agent")
 
 
 class TestDeepResearchError:

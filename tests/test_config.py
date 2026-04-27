@@ -33,8 +33,8 @@ class TestConstants:
         assert DEFAULT_MODEL == "gemini-3.1-pro-preview"
 
     def test_default_agent(self):
-        """Default agent should be deep-research-pro-preview."""
-        assert "deep-research" in DEFAULT_DEEP_RESEARCH_AGENT
+        """Default agent should be the April 2026 fast Deep Research agent."""
+        assert DEFAULT_DEEP_RESEARCH_AGENT == DeepResearchAgent.DEEP_RESEARCH
 
     def test_default_thinking_level(self):
         """Default thinking level should be 'high'."""
@@ -104,13 +104,36 @@ class TestGetDeepResearchAgent:
         """Should return DeepResearchAgent enum type."""
         agent = get_deep_research_agent()
         assert isinstance(agent, DeepResearchAgent)
-        assert agent == DeepResearchAgent.DEEP_RESEARCH_PRO
+        assert agent == DeepResearchAgent.DEEP_RESEARCH
 
-    def test_env_override_ignored(self):
-        """Environment variable override should be ignored (only one agent supported)."""
-        with patch.dict(os.environ, {"DEEP_RESEARCH_AGENT": "custom-agent"}):
-            # Should still return the only supported agent
-            assert get_deep_research_agent() == DeepResearchAgent.DEEP_RESEARCH_PRO
+    @pytest.mark.parametrize("alias", [
+        "fast",
+        "standard",
+        "deep-research",
+        "deep-research-preview-04-2026",
+    ])
+    def test_env_override_fast_aliases(self, alias: str):
+        """Fast/default aliases should resolve to the April 2026 agent."""
+        with patch.dict(os.environ, {"DEEP_RESEARCH_AGENT": alias}):
+            assert get_deep_research_agent() == DeepResearchAgent.DEEP_RESEARCH
+
+    @pytest.mark.parametrize("alias", [
+        "max",
+        "deep-research-max",
+        "deep-research-max-preview-04-2026",
+    ])
+    def test_env_override_max_aliases(self, alias: str):
+        """Max aliases should resolve to the Deep Research Max agent."""
+        with patch.dict(os.environ, {"DEEP_RESEARCH_AGENT": alias}):
+            assert get_deep_research_agent() == DeepResearchAgent.DEEP_RESEARCH_MAX
+
+    def test_invalid_env_override_raises(self):
+        """Invalid Deep Research agent values should fail clearly."""
+        with (
+            patch.dict(os.environ, {"DEEP_RESEARCH_AGENT": "custom-agent"}),
+            pytest.raises(ValueError, match="Invalid Deep Research agent"),
+        ):
+            get_deep_research_agent()
 
 
 class TestIsRetryableError:

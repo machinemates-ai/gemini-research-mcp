@@ -248,7 +248,7 @@ async def deep_research_stream(
 
     create_kwargs: dict[str, Any] = {
         "input": prompt,
-        "agent": agent_name,
+        "agent": agent_name.value,
         "background": True,
         "stream": True,
         "agent_config": {
@@ -263,7 +263,7 @@ async def deep_research_stream(
 
     logger.info("=" * 60)
     logger.info("🔬 DEEP RESEARCH AGENT")
-    logger.info("   Agent: %s", agent_name)
+    logger.info("   Agent: %s", agent_name.value)
     logger.info("   Query: %s", query[:100])
     logger.info("   Max initial retries: %d", MAX_INITIAL_RETRIES)
     logger.info("   Max stream retries: %d", MAX_STREAM_RETRIES)
@@ -307,11 +307,21 @@ async def deep_research_stream(
 
             if chunk.event_type == "content.delta":
                 delta = chunk.delta
-                delta_type = delta.get("type") if isinstance(delta, dict) else getattr(delta, "type", None)
+                delta_type = (
+                    delta.get("type")
+                    if isinstance(delta, dict)
+                    else getattr(delta, "type", None)
+                )
                 if delta_type == "thought_summary":
-                    content = delta.get("content") if isinstance(delta, dict) else delta.content
+                    content = (
+                        delta.get("content")
+                        if isinstance(delta, dict)
+                        else getattr(delta, "content", None)
+                    )
                     if isinstance(content, dict):
                         thought_text = content.get("text") or str(content)
+                    elif content is None:
+                        thought_text = ""
                     else:
                         thought_text = content.text if hasattr(content, "text") else str(content)
                     logger.debug("[%.1fs] 🧠 thought_summary", elapsed)

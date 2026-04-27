@@ -17,7 +17,7 @@ from datetime import datetime
 from google import genai
 
 # Configuration
-DEEP_RESEARCH_AGENT = "deep-research-pro-preview-12-2025"
+DEEP_RESEARCH_AGENT = "deep-research-preview-04-2026"
 MAX_POLL_TIME = 3600.0  # 60 minutes
 STREAM_POLL_INTERVAL = 10.0  # seconds between polls after stream ends
 

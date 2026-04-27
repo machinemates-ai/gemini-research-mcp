@@ -23,7 +23,7 @@ import time
 from collections.abc import Coroutine
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -31,7 +31,7 @@ import platformdirs
 from key_value.aio.stores.disk import DiskStore
 
 from gemini_research_mcp.config import LOGGER_NAME
-from gemini_research_mcp.types import DeepResearchAgent
+from gemini_research_mcp.types import DeepResearchAgent, parse_deep_research_agent
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -89,7 +89,7 @@ def get_ttl_seconds() -> int:
 # =============================================================================
 
 
-class ResearchStatus(str, Enum):
+class ResearchStatus(StrEnum):
     """Status of a research session for resume functionality."""
 
     IN_PROGRESS = "in_progress"  # Research started, not yet completed
@@ -174,7 +174,11 @@ class ResearchSession:
         # Convert enums to string for JSON serialization
         result["status"] = self.status.value
         if self.agent_name is not None:
-            result["agent_name"] = self.agent_name.value
+            result["agent_name"] = (
+                self.agent_name.value
+                if isinstance(self.agent_name, DeepResearchAgent)
+                else str(self.agent_name)
+            )
         return result
 
     @classmethod
@@ -194,9 +198,12 @@ class ResearchSession:
 
         # Handle agent_name enum
         agent_name_raw = data.get("agent_name")
-        agent_name = (
-            DeepResearchAgent(agent_name_raw) if agent_name_raw is not None else None
-        )
+        agent_name = None
+        if agent_name_raw is not None:
+            try:
+                agent_name = parse_deep_research_agent(str(agent_name_raw))
+            except ValueError:
+                logger.warning("Unknown stored Deep Research agent: %s", agent_name_raw)
 
         return cls(
             interaction_id=data["interaction_id"],

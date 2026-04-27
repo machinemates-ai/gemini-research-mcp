@@ -35,7 +35,7 @@ def sample_session() -> ResearchSession:
         query="What is quantum computing?",
         created_at=time.time(),
         title="Quantum Computing Research",
-        agent_name=DeepResearchAgent.DEEP_RESEARCH_PRO,
+        agent_name=DeepResearchAgent.DEEP_RESEARCH,
         duration_seconds=45.5,
         total_tokens=1500,
         tags=["physics", "computing"],
@@ -121,6 +121,16 @@ class TestResearchSession:
         assert restored.interaction_id == sample_session.interaction_id
         assert restored.query == sample_session.query
         assert restored.tags == sample_session.tags
+        assert restored.agent_name == DeepResearchAgent.DEEP_RESEARCH
+
+    def test_from_dict_legacy_agent(self, sample_session: ResearchSession) -> None:
+        """Existing sessions with the December preview agent should still load."""
+        data = sample_session.to_dict()
+        data["agent_name"] = "deep-research-pro-preview-12-2025"
+
+        restored = ResearchSession.from_dict(data)
+
+        assert restored.agent_name == DeepResearchAgent.DEEP_RESEARCH_PRO_LEGACY
 
     def test_short_description(self, sample_session: ResearchSession) -> None:
         """Test short description generation."""

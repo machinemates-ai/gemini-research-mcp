@@ -9,14 +9,22 @@ import pytest
 @pytest.mark.asyncio
 async def test_research_deep_emits_progress_for_thought(monkeypatch: pytest.MonkeyPatch) -> None:
     import gemini_research_mcp.server as server
-    from gemini_research_mcp.types import DeepResearchProgress, DeepResearchResult
+    from gemini_research_mcp.types import (
+        DeepResearchAgent,
+        DeepResearchProgress,
+        DeepResearchResult,
+    )
+
+    captured: dict[str, DeepResearchAgent | None] = {}
 
     async def fake_stream(
         *,
         query: str,
         format_instructions: str | None = None,
         file_search_store_names: list[str] | None = None,
+        agent_name: DeepResearchAgent | None = None,
     ) -> AsyncIterator[DeepResearchProgress]:
+        captured["agent_name"] = agent_name
         yield DeepResearchProgress(event_type="start", interaction_id="test-interaction")
         yield DeepResearchProgress(
             event_type="thought",
@@ -68,6 +76,7 @@ async def test_research_deep_emits_progress_for_thought(monkeypatch: pytest.Monk
     result = await server.research_deep(query="test", ctx=ctx)
 
     assert "## Research Report" in result
+    assert captured["agent_name"] == DeepResearchAgent.DEEP_RESEARCH
 
     # Start event is emitted through task statusMessage channel.
     ctx.report_progress.assert_any_await(
@@ -84,3 +93,60 @@ async def test_research_deep_emits_progress_for_thought(monkeypatch: pytest.Monk
 
     # Progress updates are unified on report_progress for task-mode execution.
     ctx.info.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_research_deep_max_routes_max_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    import gemini_research_mcp.server as server
+    from gemini_research_mcp.types import (
+        DeepResearchAgent,
+        DeepResearchProgress,
+        DeepResearchResult,
+    )
+
+    captured: dict[str, DeepResearchAgent | None] = {}
+
+    async def fake_stream(
+        *,
+        query: str,
+        format_instructions: str | None = None,
+        file_search_store_names: list[str] | None = None,
+        agent_name: DeepResearchAgent | None = None,
+    ) -> AsyncIterator[DeepResearchProgress]:
+        captured["agent_name"] = agent_name
+        yield DeepResearchProgress(event_type="start", interaction_id="test-interaction-max")
+
+    async def fake_status(interaction_id: str) -> DeepResearchResult:
+        return DeepResearchResult(
+            text="Max report",
+            citations=[],
+            thinking_summaries=[],
+            interaction_id=interaction_id,
+            usage=None,
+            raw_interaction=types.SimpleNamespace(status="completed"),
+        )
+
+    async def passthrough_citations(
+        result: DeepResearchResult,
+        resolve_urls: bool,
+    ) -> DeepResearchResult:
+        return result
+
+    async def fake_generate_title_from_query(query: str) -> str | None:
+        return "Max title"
+
+    async def fake_generate_session_metadata(text: str, query: str) -> Any:
+        return types.SimpleNamespace(title="Max title", summary="Max summary")
+
+    monkeypatch.setattr(server, "deep_research_stream", fake_stream)
+    monkeypatch.setattr(server, "get_research_status", fake_status)
+    monkeypatch.setattr(server, "process_citations", passthrough_citations)
+    monkeypatch.setattr(server, "generate_title_from_query", fake_generate_title_from_query)
+    monkeypatch.setattr(server, "generate_session_metadata", fake_generate_session_metadata)
+    monkeypatch.setattr(server, "save_research_session", lambda **kwargs: None)
+    monkeypatch.setattr(server, "update_research_session", lambda *args, **kwargs: None)
+
+    result = await server.research_deep_max(query="high-stakes due diligence", ctx=None)
+
+    assert "## Research Report" in result
+    assert captured["agent_name"] == DeepResearchAgent.DEEP_RESEARCH_MAX

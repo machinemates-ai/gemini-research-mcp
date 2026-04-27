@@ -26,6 +26,7 @@ flowchart TB
         subgraph Tools["Tools"]
             RW["research_web<br/>Quick lookup 5-30s"]
             RD["research_deep<br/>Autonomous 3-20min"]
+            RDM["research_deep_max<br/>Max depth"]
             RF["research_followup<br/>Continue session"]
             RR["resume_research<br/>Recover interrupted"]
             FW["fetch_webpage<br/>Content extraction"]
@@ -57,6 +58,7 @@ flowchart TB
     
     RW --> Quick
     RD --> Deep
+    RDM --> Deep
     RF --> StorageMod
     RR --> StorageMod
     FW --> Content
@@ -76,6 +78,7 @@ flowchart TB
 |------|-------------|---------|
 | `research_web` | Fast web search with citations | 5-30 sec |
 | `research_deep` | Multi-step autonomous research (MCP Tasks) | 3-20 min |
+| `research_deep_max` | Maximum-comprehensiveness Deep Research for exhaustive/high-stakes work | longer-running |
 | `resume_research` | Resume interrupted/in-progress sessions | instant |
 | `research_followup` | Continue conversation after research | 5-30 sec |
 | `list_research_sessions` | List saved research sessions | instant |
@@ -121,6 +124,7 @@ extraction and `protego`-based `robots.txt` checks are unavailable.
 ### Features
 
 - **Auto-Clarification**: `research_deep` asks clarifying questions for vague queries via [MCP Elicitation](https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation)
+- **Deep Research Max**: `research_deep_max` exposes Google's Max agent for exhaustive, high-stakes, and offline research workflows
 - **MCP Tasks**: [Real-time progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks) with streaming updates
 - **Session Persistence**: Research sessions are automatically saved and can be resumed later
 - **Export Formats**: Export to Markdown, JSON, or professional DOCX with Table of Contents
@@ -150,13 +154,31 @@ The bundle uses UV runtime - dependencies are installed automatically, no Python
 | `GEMINI_API_KEY` | **Yes** | — | [Google AI Studio API key](https://aistudio.google.com/apikey) |
 | `GEMINI_MODEL` | No | `gemini-3.1-pro-preview` | Model for `research_web` |
 | `GEMINI_SUMMARY_MODEL` | No | `gemini-3-flash-preview` | Model for session summaries (fast) |
-| `DEEP_RESEARCH_AGENT` | No | `deep-research-pro-preview-12-2025` | Agent for `research_deep` |
+| `DEEP_RESEARCH_AGENT` | No | `deep-research-preview-04-2026` | Default agent for `research_deep`; accepts `fast`, `standard`, `deep-research`, `max`, `deep-research-max`, or exact agent IDs |
 | `FETCH_PROXY_URL` | No | — | Default HTTP(S) proxy for `fetch_webpage` |
 
 ```bash
 cp .env.example .env
 # Edit .env with your API key
 ```
+
+### Deep Research vs Deep Research Max
+
+Google exposes Deep Research variants through the Gemini Interactions API `agent`
+field, not the regular Gemini `model` field:
+
+- `research_deep` uses `deep-research-preview-04-2026` by default. Use it for
+  interactive research, comparisons, investigations, and latency/cost-sensitive
+  synthesis.
+- `research_deep_max` uses `deep-research-max-preview-04-2026`. Use it when the
+  user explicitly asks for Max, exhaustive/comprehensive due diligence, market
+  maps, literature reviews, board-ready reports, offline/nightly research, or
+  maximum completeness over speed.
+
+For Copilot and other LLM clients, the two tools are intentionally separate so
+Max can be selected from the tool name and description. There is no public
+`model` parameter for Deep Research, because follow-up and quick research use
+Gemini models while Deep Research uses Interactions agents.
 
 ## Usage
 

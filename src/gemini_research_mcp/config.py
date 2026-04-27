@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from datetime import date
 
-from gemini_research_mcp.types import DeepResearchAgent
+from gemini_research_mcp.types import DeepResearchAgent, parse_deep_research_agent
 
 # =============================================================================
 # Logging
@@ -24,8 +24,8 @@ LOGGER_NAME = "gemini-research-mcp"
 
 # Default models - can be overridden via environment
 DEFAULT_MODEL = "gemini-3.1-pro-preview"
-# Interactions Deep Research agent (only supported agent)
-DEFAULT_DEEP_RESEARCH_AGENT = DeepResearchAgent.DEEP_RESEARCH_PRO
+# Interactions Deep Research agent used by research_deep by default.
+DEFAULT_DEEP_RESEARCH_AGENT = DeepResearchAgent.DEEP_RESEARCH
 # Model for generating summaries (fast, cheap)
 DEFAULT_SUMMARY_MODEL = "gemini-3-flash-preview"
 
@@ -93,12 +93,14 @@ def get_model() -> str:
 
 
 def get_deep_research_agent() -> DeepResearchAgent:
-    """Get Deep Research agent.
+    """Get the default Deep Research agent with env override support.
 
-    Note: Only 'deep-research-pro-preview-12-2025' is supported.
-    Environment variable override is ignored for type safety.
+    Deep Research variants are Gemini Interactions API agents, not Gemini model IDs.
     """
-    return DEFAULT_DEEP_RESEARCH_AGENT
+    raw_agent = os.environ.get("DEEP_RESEARCH_AGENT")
+    if not raw_agent:
+        return DEFAULT_DEEP_RESEARCH_AGENT
+    return parse_deep_research_agent(raw_agent)
 
 
 def get_summary_model() -> str:

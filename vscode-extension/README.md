@@ -6,7 +6,8 @@ AI-powered research tools for GitHub Copilot Chat, powered by Google Gemini.
 
 - **🔎 Quick Research** (`research_web`): Fast web search with Gemini grounding (5-30 seconds)
 - **🌐 Read URL** (`fetch_webpage`): Extract clean Markdown from a specific public URL
-- **🔬 Deep Research** (`research_deep`): Comprehensive autonomous research agent (3-20 minutes)
+- **🔬 Deep Research** (`research_deep`): Default/fast autonomous research agent (3-20 minutes)
+- **🔬 Deep Research Max** (`research_deep_max`): Maximum-comprehensiveness research for exhaustive/high-stakes work
 - **💬 Follow-up** (`research_followup`): Continue conversation with previous research
 - **🔄 Resume** (`resume_research`): Recover interrupted research sessions
 - **📤 Export** (`export_research_session`): Export to Markdown, JSON, or Word
@@ -22,10 +23,16 @@ AI-powered research tools for GitHub Copilot Chat, powered by Google Gemini.
 
 ```
 @workspace research the competition for our product
+@workspace do Deep Research Max due diligence on this acquisition market
 @workspace do a deep dive on React Server Components vs Next.js App Router
 @workspace what's the latest on the OpenAI o3 model?
 @workspace read this URL and summarize it: https://example.com/blog-post
 ```
+
+Use regular Deep Research for interactive, latency-sensitive research. Use Deep
+Research Max when the request says Max, exhaustive, comprehensive, due diligence,
+market map, literature review, high-stakes, board-ready, offline/nightly, or asks
+for maximum completeness over speed.
 
 ## Requirements
 

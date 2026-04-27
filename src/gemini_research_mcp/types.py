@@ -5,7 +5,7 @@ Data types for Gemini Research MCP Server.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 # =============================================================================
@@ -13,7 +13,7 @@ from typing import Any
 # =============================================================================
 
 
-class ErrorCategory(str, Enum):
+class ErrorCategory(StrEnum):
     """Categorized error types for programmatic handling."""
 
     AUTH_ERROR = "AUTH_ERROR"  # API key invalid or missing
@@ -28,10 +28,44 @@ class ErrorCategory(str, Enum):
     API_ERROR = "API_ERROR"  # Other API errors
 
 
-class DeepResearchAgent(str, Enum):
-    """Supported agent for deep research."""
+class DeepResearchAgent(StrEnum):
+    """Supported Gemini Interactions API agents for Deep Research."""
 
-    DEEP_RESEARCH_PRO = "deep-research-pro-preview-12-2025"
+    DEEP_RESEARCH = "deep-research-preview-04-2026"
+    DEEP_RESEARCH_MAX = "deep-research-max-preview-04-2026"
+    DEEP_RESEARCH_PRO_LEGACY = "deep-research-pro-preview-12-2025"
+
+
+_DEEP_RESEARCH_AGENT_ALIASES: dict[str, DeepResearchAgent] = {
+    "fast": DeepResearchAgent.DEEP_RESEARCH,
+    "standard": DeepResearchAgent.DEEP_RESEARCH,
+    "regular": DeepResearchAgent.DEEP_RESEARCH,
+    "default": DeepResearchAgent.DEEP_RESEARCH,
+    "deep-research": DeepResearchAgent.DEEP_RESEARCH,
+    DeepResearchAgent.DEEP_RESEARCH.value: DeepResearchAgent.DEEP_RESEARCH,
+    "max": DeepResearchAgent.DEEP_RESEARCH_MAX,
+    "deep-research-max": DeepResearchAgent.DEEP_RESEARCH_MAX,
+    DeepResearchAgent.DEEP_RESEARCH_MAX.value: DeepResearchAgent.DEEP_RESEARCH_MAX,
+    "pro": DeepResearchAgent.DEEP_RESEARCH_PRO_LEGACY,
+    "deep-research-pro": DeepResearchAgent.DEEP_RESEARCH_PRO_LEGACY,
+    DeepResearchAgent.DEEP_RESEARCH_PRO_LEGACY.value: DeepResearchAgent.DEEP_RESEARCH_PRO_LEGACY,
+}
+
+
+def parse_deep_research_agent(value: str | DeepResearchAgent) -> DeepResearchAgent:
+    """Normalize a user/config agent alias to a supported Deep Research agent."""
+    if isinstance(value, DeepResearchAgent):
+        return value
+
+    normalized = value.strip().lower()
+    try:
+        return _DEEP_RESEARCH_AGENT_ALIASES[normalized]
+    except KeyError as exc:
+        valid = ", ".join(sorted(_DEEP_RESEARCH_AGENT_ALIASES))
+        raise ValueError(
+            f"Invalid Deep Research agent '{value}'. "
+            f"Use one of: {valid}"
+        ) from exc
 
 
 def _categorize_error_message(message: str) -> ErrorCategory:
