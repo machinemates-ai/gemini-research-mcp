@@ -82,7 +82,7 @@ from gemini_research_mcp.storage import (
 from gemini_research_mcp.storage import (
     list_research_sessions as _list_sessions,
 )
-from gemini_research_mcp.types import DeepResearchError, DeepResearchResult
+from gemini_research_mcp.types import DeepResearchAgent, DeepResearchError, DeepResearchResult
 
 # Configure logging
 logger = logging.getLogger(LOGGER_NAME)
@@ -598,20 +598,14 @@ async def _maybe_clarify_query(
 # =============================================================================
 
 
-@mcp.tool(
-    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
-    task=TaskConfig(mode="required"),
-)
-async def research_deep(
-    query: Annotated[str, "Research question or topic to investigate thoroughly"],
-    format_instructions: Annotated[
-        str | None,
-        "Optional report format (e.g., 'executive briefing', 'comparison table')",
-    ] = None,
-    file_search_store_names: Annotated[
-        list[str] | None,
-        "Optional: Gemini File Search store names to search your own data alongside web",
-    ] = None,
+async def _run_deep_research_tool(
+    *,
+    query: str,
+    format_instructions: str | None = None,
+    file_search_store_names: list[str] | None = None,
+    mcp_servers: list[dict[str, object]] | None = None,
+    agent_name: DeepResearchAgent,
+    tool_name: str,
     ctx: Context | None = None,
 ) -> str:
     """
@@ -638,6 +632,7 @@ async def research_deep(
             registered template key — see `list_format_templates`).
         file_search_store_names: Optional Gemini File Search stores to RAG
             over your own data alongside the web.
+        mcp_servers: Optional remote MCP servers for custom/private data and tools.
 
     Returns:
         Comprehensive research report with citations. The returned
@@ -645,11 +640,17 @@ async def research_deep(
         interruption) or `export_research_session` (to materialize the
         report as DOCX/Markdown/JSON).
     """
-    logger.info("🔬 research_deep: %s", query[:100])
+    logger.info("🔬 %s (%s): %s", tool_name, agent_name.value, query[:100])
     if format_instructions:
         logger.info("   📝 Format: %s", format_instructions[:80])
     if file_search_store_names:
         logger.info("   📁 File search stores: %s", file_search_store_names)
+    if mcp_servers:
+        names = [
+            str(server.get("name") or server.get("url") or "unnamed")
+            for server in mcp_servers
+        ]
+        logger.info("   🔌 MCP servers: %s", names)
 
     # Resolve template key to full template instructions
     effective_format = format_instructions
@@ -683,7 +684,7 @@ async def research_deep(
         await ctx.report_progress(
             progress=0,
             total=100,
-            message="Starting deep research...",
+            message=f"Starting {tool_name}...",
         )
 
     try:
@@ -698,6 +699,8 @@ async def research_deep(
             query=effective_query,
             format_instructions=effective_format,
             file_search_store_names=file_search_store_names,
+            mcp_servers=mcp_servers,
+            agent_name=agent_name,
         ):
             if event.interaction_id:
                 interaction_id = event.interaction_id
@@ -717,7 +720,7 @@ async def research_deep(
                             query=effective_query,
                             title=initial_title,
                             format_instructions=format_instructions,
-                            agent_name=get_deep_research_agent(),
+                            agent_name=agent_name,
                             status=ResearchStatus.IN_PROGRESS,
                         )
                         session_saved = True
@@ -875,11 +878,81 @@ async def research_deep(
     except DeepResearchError:
         raise
     except Exception as e:
-        logger.exception("research_deep failed: %s", e)
+        logger.exception("%s failed: %s", tool_name, e)
         raise DeepResearchError(
             code="INTERNAL_ERROR",
             message=str(e),
         ) from e
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+    task=TaskConfig(mode="required"),
+)
+async def research_deep(
+    query: Annotated[str, "Research question or topic to investigate thoroughly"],
+    format_instructions: Annotated[
+        str | None,
+        "Optional report format (e.g., 'executive briefing', 'comparison table')",
+    ] = None,
+    file_search_store_names: Annotated[
+        list[str] | None,
+        "Optional: Gemini File Search store names to search your own data alongside web",
+    ] = None,
+    mcp_servers: Annotated[
+        list[dict[str, object]] | None,
+        (
+            "Optional remote MCP server configs for Deep Research. Each item may include "
+            "name, url, headers, and allowed_tools."
+        ),
+    ] = None,
+    ctx: Context | None = None,
+) -> str:
+    """Run the default Deep Research agent with optional File Search and MCP tools."""
+    return await _run_deep_research_tool(
+        query=query,
+        format_instructions=format_instructions,
+        file_search_store_names=file_search_store_names,
+        mcp_servers=mcp_servers,
+        agent_name=get_deep_research_agent(),
+        tool_name="research_deep",
+        ctx=ctx,
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+    task=TaskConfig(mode="required"),
+)
+async def research_deep_max(
+    query: Annotated[str, "Research question or topic to investigate with maximum depth"],
+    format_instructions: Annotated[
+        str | None,
+        "Optional report format (e.g., 'executive briefing', 'comparison table')",
+    ] = None,
+    file_search_store_names: Annotated[
+        list[str] | None,
+        "Optional: Gemini File Search store names to search your own data alongside web",
+    ] = None,
+    mcp_servers: Annotated[
+        list[dict[str, object]] | None,
+        (
+            "Optional remote MCP server configs for Deep Research Max. Each item may "
+            "include name, url, headers, and allowed_tools."
+        ),
+    ] = None,
+    ctx: Context | None = None,
+) -> str:
+    """Run Deep Research Max for maximum-comprehensiveness background research."""
+    return await _run_deep_research_tool(
+        query=query,
+        format_instructions=format_instructions,
+        file_search_store_names=file_search_store_names,
+        mcp_servers=mcp_servers,
+        agent_name=DeepResearchAgent.DEEP_RESEARCH_MAX,
+        tool_name="research_deep_max",
+        ctx=ctx,
+    )
 
 
 # =============================================================================

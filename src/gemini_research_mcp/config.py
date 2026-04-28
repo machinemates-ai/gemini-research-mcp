@@ -26,8 +26,8 @@ LOGGER_NAME = "gemini-research-mcp"
 
 # Default models - can be overridden via environment
 DEFAULT_MODEL = "gemini-3.1-pro-preview"
-# Interactions Deep Research agent (only supported agent)
-DEFAULT_DEEP_RESEARCH_AGENT = DeepResearchAgent.DEEP_RESEARCH_PRO
+# Interactions Deep Research agent.
+DEFAULT_DEEP_RESEARCH_AGENT = DeepResearchAgent.DEEP_RESEARCH
 # Model for generating summaries (fast, cheap)
 DEFAULT_SUMMARY_MODEL = "gemini-3-flash-preview"
 
@@ -97,10 +97,32 @@ def get_model() -> str:
 def get_deep_research_agent() -> DeepResearchAgent:
     """Get Deep Research agent.
 
-    Note: Only 'deep-research-pro-preview-12-2025' is supported.
-    Environment variable override is ignored for type safety.
+    Environment variable aliases:
+    - fast, standard, deep-research -> Deep Research
+    - max, deep-research-max -> Deep Research Max
+    - pro, deep-research-pro -> legacy December 2025 agent
     """
-    return DEFAULT_DEEP_RESEARCH_AGENT
+    raw = os.environ.get("DEEP_RESEARCH_AGENT")
+    if not raw:
+        return DEFAULT_DEEP_RESEARCH_AGENT
+    normalized = raw.strip().lower()
+    aliases = {
+        "fast": DeepResearchAgent.DEEP_RESEARCH,
+        "standard": DeepResearchAgent.DEEP_RESEARCH,
+        "deep-research": DeepResearchAgent.DEEP_RESEARCH,
+        DeepResearchAgent.DEEP_RESEARCH.value: DeepResearchAgent.DEEP_RESEARCH,
+        "max": DeepResearchAgent.DEEP_RESEARCH_MAX,
+        "deep-research-max": DeepResearchAgent.DEEP_RESEARCH_MAX,
+        DeepResearchAgent.DEEP_RESEARCH_MAX.value: DeepResearchAgent.DEEP_RESEARCH_MAX,
+        "pro": DeepResearchAgent.DEEP_RESEARCH_PRO,
+        "deep-research-pro": DeepResearchAgent.DEEP_RESEARCH_PRO,
+        DeepResearchAgent.DEEP_RESEARCH_PRO.value: DeepResearchAgent.DEEP_RESEARCH_PRO,
+    }
+    try:
+        return aliases[normalized]
+    except KeyError as exc:
+        valid = ", ".join(sorted(aliases))
+        raise ValueError(f"Invalid DEEP_RESEARCH_AGENT '{raw}'. Use one of: {valid}") from exc
 
 
 def get_summary_model() -> str:

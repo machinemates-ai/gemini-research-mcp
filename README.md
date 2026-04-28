@@ -140,6 +140,7 @@ extraction and `protego`-based `robots.txt` checks are unavailable.
 - **Session Persistence**: Research sessions are automatically saved and can be resumed later
 - **Export Formats**: Export to Markdown, JSON, or professional DOCX with Table of Contents
 - **File Search**: Search your own data alongside web using `file_search_store_names`
+- **Remote MCP sources**: Deep Research can call remote MCP servers using `mcp_servers`
 - **Format Instructions**: Control report structure (sections, tables, tone)
 
 ## Installation
@@ -172,6 +173,55 @@ The bundle uses UV runtime - dependencies are installed automatically, no Python
 cp .env.example .env
 # Edit .env with your API key
 ```
+
+### Deep Research vs Deep Research Max
+
+Google exposes Deep Research variants through the Gemini Interactions API `agent`
+field, not the regular Gemini `model` field:
+
+- `research_deep` uses `deep-research-preview-04-2026` by default. Use it for
+  interactive research, comparisons, investigations, and latency/cost-sensitive
+  synthesis.
+- `research_deep_max` uses `deep-research-max-preview-04-2026`. Use it when the
+  user explicitly asks for Max, exhaustive/comprehensive due diligence, market
+  maps, literature reviews, board-ready reports, offline/nightly research, or
+  maximum completeness over speed.
+
+For Copilot and other LLM clients, the two tools are intentionally separate so
+Max can be selected from the tool name and description. There is no public
+`model` parameter for Deep Research, because follow-up and quick research use
+Gemini models while Deep Research uses Interactions agents.
+
+### Remote MCP servers for Deep Research
+
+Google Deep Research supports remote MCP servers through the Interactions API. Pass
+`mcp_servers` to `research_deep` or `research_deep_max` when the agent needs a
+specialized/private data source.
+
+```json
+{
+  "query": "Use the Market Researcher MCP evidence ledger to analyze the approved market gate.",
+  "mcp_servers": [
+    {
+      "name": "Market Researcher MCP",
+      "url": "https://example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${TOKEN}"
+      },
+      "allowed_tools": [
+        "market_get_mission",
+        "market_get_runtime_policy",
+        "market_get_task_status",
+        "market_generate_report"
+      ]
+    }
+  ]
+}
+```
+
+Use `allowed_tools` aggressively. For evidence-led workflows, expose read-only
+ledger/report/status tools to Deep Research and import the resulting report back
+through your own audit/quarantine path.
 
 ## Usage
 

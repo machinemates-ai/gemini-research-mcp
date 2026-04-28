@@ -48,6 +48,63 @@ from gemini_research_mcp.types import (
 logger = logging.getLogger(LOGGER_NAME)
 
 
+def _validate_mcp_server_tool(server: dict[str, Any]) -> dict[str, Any]:
+    """Validate and normalize a Gemini Interactions API MCP server tool."""
+    url = server.get("url")
+    if not isinstance(url, str) or not url:
+        raise ValueError("Each MCP server must include a non-empty 'url'.")
+    if not url.startswith("https://"):
+        allow_insecure = bool(server.get("allow_insecure_localhost"))
+        is_local = url.startswith(("http://localhost", "http://127.0.0.1"))
+        if not (allow_insecure and is_local):
+            raise ValueError(
+                "MCP server URLs must be HTTPS unless explicitly allowed for localhost."
+            )
+
+    tool: dict[str, Any] = {"type": "mcp_server", "url": url}
+    name = server.get("name")
+    if name is not None:
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("MCP server 'name' must be a non-empty string when provided.")
+        tool["name"] = name
+
+    headers = server.get("headers")
+    if headers is not None:
+        if not isinstance(headers, dict) or not all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in headers.items()
+        ):
+            raise ValueError("MCP server 'headers' must be a string-to-string object.")
+        tool["headers"] = headers
+
+    allowed_tools = server.get("allowed_tools")
+    if allowed_tools is not None:
+        if not isinstance(allowed_tools, list) or not all(
+            isinstance(tool_name, str) and tool_name for tool_name in allowed_tools
+        ):
+            raise ValueError("MCP server 'allowed_tools' must be a list of tool names.")
+        tool["allowed_tools"] = allowed_tools
+
+    return tool
+
+
+def build_interactions_tools(
+    *,
+    file_search_store_names: list[str] | None = None,
+    mcp_servers: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]] | None:
+    """Build Gemini Interactions API tools without logging or persisting secrets."""
+    tools: list[dict[str, Any]] = []
+    if file_search_store_names:
+        tools.append({
+            "type": "file_search",
+            "file_search_store_names": file_search_store_names,
+        })
+    for server in mcp_servers or []:
+        tools.append(_validate_mcp_server_tool(server))
+    return tools or None
+
+
 # =============================================================================
 # Client Health Management
 # =============================================================================
@@ -203,6 +260,7 @@ async def deep_research_stream(
     *,
     format_instructions: str | None = None,
     file_search_store_names: list[str] | None = None,
+    mcp_servers: list[dict[str, Any]] | None = None,
     agent_name: DeepResearchAgent | None = None,
 ) -> AsyncIterator[DeepResearchProgress]:
     """
@@ -221,6 +279,7 @@ async def deep_research_stream(
         query: Research question or topic
         format_instructions: Optional formatting instructions for output
         file_search_store_names: Optional list of file search store names for RAG
+        mcp_servers: Optional remote MCP server tool configs for Deep Research
         agent_name: Deep Research agent to use
 
     Yields:
@@ -237,14 +296,10 @@ async def deep_research_stream(
 
     prompt = f"{query}\n\n{format_instructions}" if format_instructions else query
 
-    tools = None
-    if file_search_store_names:
-        tools = [
-            {
-                "type": "file_search",
-                "file_search_store_names": file_search_store_names,
-            }
-        ]
+    tools = build_interactions_tools(
+        file_search_store_names=file_search_store_names,
+        mcp_servers=mcp_servers,
+    )
 
     create_kwargs: dict[str, Any] = {
         "input": prompt,

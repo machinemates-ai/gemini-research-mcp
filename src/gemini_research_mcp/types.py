@@ -31,6 +31,8 @@ class ErrorCategory(str, Enum):
 class DeepResearchAgent(str, Enum):
     """Supported agent for deep research."""
 
+    DEEP_RESEARCH = "deep-research-preview-04-2026"
+    DEEP_RESEARCH_MAX = "deep-research-max-preview-04-2026"
     DEEP_RESEARCH_PRO = "deep-research-pro-preview-12-2025"
 
 

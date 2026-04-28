@@ -104,13 +104,22 @@ class TestGetDeepResearchAgent:
         """Should return DeepResearchAgent enum type."""
         agent = get_deep_research_agent()
         assert isinstance(agent, DeepResearchAgent)
-        assert agent == DeepResearchAgent.DEEP_RESEARCH_PRO
+        assert agent == DeepResearchAgent.DEEP_RESEARCH
 
-    def test_env_override_ignored(self):
-        """Environment variable override should be ignored (only one agent supported)."""
-        with patch.dict(os.environ, {"DEEP_RESEARCH_AGENT": "custom-agent"}):
-            # Should still return the only supported agent
+    def test_env_override_aliases(self):
+        """Environment variable override should select supported agents."""
+        with patch.dict(os.environ, {"DEEP_RESEARCH_AGENT": "max"}):
+            assert get_deep_research_agent() == DeepResearchAgent.DEEP_RESEARCH_MAX
+        with patch.dict(os.environ, {"DEEP_RESEARCH_AGENT": "pro"}):
             assert get_deep_research_agent() == DeepResearchAgent.DEEP_RESEARCH_PRO
+
+    def test_env_override_rejects_unknown_agent(self):
+        """Unknown Deep Research agent values should fail fast."""
+        with (
+            patch.dict(os.environ, {"DEEP_RESEARCH_AGENT": "custom-agent"}),
+            pytest.raises(ValueError, match="Invalid DEEP_RESEARCH_AGENT"),
+        ):
+            get_deep_research_agent()
 
 
 class TestIsRetryableError:
