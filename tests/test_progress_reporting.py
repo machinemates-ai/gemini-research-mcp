@@ -16,6 +16,8 @@ async def test_research_deep_emits_progress_for_thought(monkeypatch: pytest.Monk
         query: str,
         format_instructions: str | None = None,
         file_search_store_names: list[str] | None = None,
+        mcp_servers: list[dict[str, Any]] | None = None,
+        agent_name: Any = None,
     ) -> AsyncIterator[DeepResearchProgress]:
         yield DeepResearchProgress(event_type="start", interaction_id="test-interaction")
         yield DeepResearchProgress(
