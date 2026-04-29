@@ -58,6 +58,9 @@ from gemini_research_mcp.deep import (
     get_research_status,
 )
 from gemini_research_mcp.deep import (
+    inspect_mcp_server_for_gemini as _inspect_mcp_server_for_gemini,
+)
+from gemini_research_mcp.deep import (
     research_followup as _research_followup,
 )
 from gemini_research_mcp.export import (
@@ -883,6 +886,37 @@ async def _run_deep_research_tool(
             code="INTERNAL_ERROR",
             message=str(e),
         ) from e
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+)
+async def inspect_mcp_server_for_gemini(
+    url: Annotated[str, "HTTPS MCP server endpoint URL to inspect"],
+    name: Annotated[str | None, "Optional display name for the MCP server"] = None,
+    headers: Annotated[
+        dict[str, str] | None,
+        "Optional string-to-string headers used when listing server tools",
+    ] = None,
+    allowed_tools: Annotated[
+        list[str] | None,
+        "Optional tool names to verify against the server tool list",
+    ] = None,
+) -> str:
+    """
+    Inspect a remote MCP server before passing it to Gemini Deep Research.
+
+    This is a diagnostics/preflight helper for provider-side 400s. It lists
+    remote tools through MCP and flags metadata patterns that often make Gemini
+    reject `type=mcp_server` before the research task starts.
+    """
+    result = await _inspect_mcp_server_for_gemini({
+        "name": name,
+        "url": url,
+        "headers": headers,
+        "allowed_tools": allowed_tools,
+    })
+    return json.dumps(result, indent=2, ensure_ascii=False)
 
 
 @mcp.tool(

@@ -225,6 +225,14 @@ through your own audit/quarantine path. The MCP server tool accepts the
 user-friendly string list shown above and normalizes it to the Gemini
 Interactions API `allowed_tools` object shape before sending the request.
 
+If Gemini returns a generic `400 invalid_request` before the research task
+starts, use `inspect_mcp_server_for_gemini` first. It lists the remote MCP
+server tools and flags common compatibility problems such as missing tool
+descriptions, empty input schemas, unsupported JSON Schema keywords, or
+`allowed_tools` names that do not exist on the server. Public quick-tunnel hosts
+may still be rejected before Gemini contacts the server; prefer a stable HTTPS
+deployment for production E2E tests.
+
 ## Usage
 
 ### VS Code MCP

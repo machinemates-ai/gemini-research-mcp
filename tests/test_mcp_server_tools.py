@@ -4,7 +4,11 @@ from typing import Any
 import pytest
 
 from gemini_research_mcp import deep
-from gemini_research_mcp.deep import build_interactions_tools, deep_research_stream
+from gemini_research_mcp.deep import (
+    analyze_mcp_tool_for_gemini,
+    build_interactions_tools,
+    deep_research_stream,
+)
 
 
 def test_build_interactions_tools_combines_file_search_and_mcp() -> None:
@@ -75,6 +79,55 @@ def test_build_interactions_tools_validates_allowed_tools() -> None:
         build_interactions_tools(
             mcp_servers=[{"url": "https://mcp.example.com/mcp", "allowed_tools": ["ok", 42]}]
         )
+
+
+def test_analyze_mcp_tool_for_gemini_accepts_simple_described_schema() -> None:
+    issues = analyze_mcp_tool_for_gemini({
+        "name": "get_guardrail_summary",
+        "description": "Return a deterministic guardrail summary.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "topic": {
+                    "type": "string",
+                    "description": "Topic to summarize.",
+                }
+            },
+            "required": ["topic"],
+            "additionalProperties": False,
+        },
+    })
+
+    assert issues == []
+
+
+def test_analyze_mcp_tool_for_gemini_flags_fixture_incompatible_schema() -> None:
+    issues = analyze_mcp_tool_for_gemini({
+        "name": "get_guardrail_summary",
+        "description": None,
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    })
+
+    assert "missing tool description" in issues
+    assert "input schema has no properties; add at least one explicit argument" in issues
+
+
+def test_analyze_mcp_tool_for_gemini_flags_complex_json_schema_keywords() -> None:
+    issues = analyze_mcp_tool_for_gemini({
+        "name": "complex_tool",
+        "description": "Uses complex schema features.",
+        "inputSchema": {
+            "type": "object",
+            "$defs": {"Filter": {"type": "object"}},
+            "properties": {"filter": {"$ref": "#/$defs/Filter"}},
+        },
+    })
+
+    assert any("$.$defs" in issue and "$.properties.filter.$ref" in issue for issue in issues)
 
 
 @pytest.mark.asyncio

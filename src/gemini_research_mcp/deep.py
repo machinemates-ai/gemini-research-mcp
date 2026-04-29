@@ -11,7 +11,7 @@ import asyncio
 import inspect
 import logging
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -46,6 +46,20 @@ from gemini_research_mcp.types import (
 )
 
 logger = logging.getLogger(LOGGER_NAME)
+
+_GEMINI_UNSUPPORTED_MCP_SCHEMA_KEYWORDS = frozenset({
+    "$ref",
+    "$defs",
+    "allOf",
+    "anyOf",
+    "dependencies",
+    "dependentSchemas",
+    "if",
+    "not",
+    "oneOf",
+    "patternProperties",
+    "then",
+})
 
 
 def _validate_mcp_server_tool(server: dict[str, Any]) -> dict[str, Any]:
@@ -86,6 +100,113 @@ def _validate_mcp_server_tool(server: dict[str, Any]) -> dict[str, Any]:
         tool["allowed_tools"] = [{"tools": allowed_tools}]
 
     return tool
+
+
+def _find_schema_keywords(schema: Any, keywords: frozenset[str], path: str = "$") -> list[str]:
+    matches: list[str] = []
+    if isinstance(schema, dict):
+        for key, value in schema.items():
+            child_path = f"{path}.{key}"
+            if key in keywords:
+                matches.append(child_path)
+            matches.extend(_find_schema_keywords(value, keywords, child_path))
+    elif isinstance(schema, list):
+        for index, item in enumerate(schema):
+            matches.extend(_find_schema_keywords(item, keywords, f"{path}[{index}]"))
+    return matches
+
+
+def analyze_mcp_tool_for_gemini(tool: Mapping[str, Any]) -> list[str]:
+    """Return likely Gemini Interactions compatibility issues for an MCP tool."""
+    issues: list[str] = []
+
+    name = tool.get("name")
+    if not isinstance(name, str) or not name.strip():
+        issues.append("missing non-empty tool name")
+
+    description = tool.get("description")
+    if not isinstance(description, str) or not description.strip():
+        issues.append("missing tool description")
+
+    input_schema = tool.get("inputSchema") or tool.get("input_schema")
+    if not isinstance(input_schema, dict):
+        issues.append("missing object input schema")
+        return issues
+
+    if input_schema.get("type") != "object":
+        issues.append("input schema type should be object")
+
+    properties = input_schema.get("properties")
+    if not isinstance(properties, dict) or not properties:
+        issues.append("input schema has no properties; add at least one explicit argument")
+
+    unsupported = _find_schema_keywords(
+        input_schema,
+        _GEMINI_UNSUPPORTED_MCP_SCHEMA_KEYWORDS,
+    )
+    if unsupported:
+        issues.append(
+            "input schema uses keywords often rejected by Gemini: "
+            + ", ".join(sorted(unsupported))
+        )
+
+    return issues
+
+
+async def inspect_mcp_server_for_gemini(server: dict[str, Any]) -> dict[str, Any]:
+    """Inspect a remote MCP server and summarize Gemini compatibility diagnostics."""
+    normalized = _validate_mcp_server_tool(server)
+
+    from fastmcp import Client
+    from fastmcp.client.transports import StreamableHttpTransport
+
+    headers = normalized.get("headers")
+    if not isinstance(headers, dict):
+        headers = {}
+
+    transport = StreamableHttpTransport(url=str(normalized["url"]), headers=headers)
+    async with Client(transport=transport) as client:
+        listed_tools = await client.list_tools()
+
+    allowed_tools = server.get("allowed_tools")
+    allowed_names = set(allowed_tools) if isinstance(allowed_tools, list) else set()
+
+    tools: list[dict[str, Any]] = []
+    discovered_names: set[str] = set()
+    for listed_tool in listed_tools:
+        tool = {
+            "name": getattr(listed_tool, "name", None),
+            "description": getattr(listed_tool, "description", None),
+            "inputSchema": getattr(listed_tool, "inputSchema", None),
+        }
+        if isinstance(tool["name"], str):
+            discovered_names.add(tool["name"])
+        tools.append({
+            "name": tool["name"],
+            "description": tool["description"],
+            "allowed": tool["name"] in allowed_names if allowed_names else None,
+            "input_schema": tool["inputSchema"],
+            "issues": analyze_mcp_tool_for_gemini(tool),
+        })
+
+    server_issues: list[str] = []
+    if not tools:
+        server_issues.append("server returned no tools")
+    missing_allowed_tools = sorted(allowed_names - discovered_names)
+    if missing_allowed_tools:
+        server_issues.append(
+            "allowed_tools not found on server: " + ", ".join(missing_allowed_tools)
+        )
+
+    return {
+        "server": {
+            "name": normalized.get("name"),
+            "url": normalized["url"],
+            "allowed_tools": sorted(allowed_names) or None,
+        },
+        "issues": server_issues,
+        "tools": tools,
+    }
 
 
 def build_interactions_tools(
