@@ -83,7 +83,7 @@ def _validate_mcp_server_tool(server: dict[str, Any]) -> dict[str, Any]:
             isinstance(tool_name, str) and tool_name for tool_name in allowed_tools
         ):
             raise ValueError("MCP server 'allowed_tools' must be a list of tool names.")
-        tool["allowed_tools"] = allowed_tools
+        tool["allowed_tools"] = [{"name": tool_name} for tool_name in allowed_tools]
 
     return tool
 

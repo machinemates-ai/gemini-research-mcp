@@ -30,7 +30,10 @@ def test_build_interactions_tools_combines_file_search_and_mcp() -> None:
             "name": "Market Researcher MCP",
             "url": "https://mcp.example.com/mcp",
             "headers": {"Authorization": "Bearer secret"},
-            "allowed_tools": ["market_get_mission", "market_generate_report"],
+            "allowed_tools": [
+                {"name": "market_get_mission"},
+                {"name": "market_generate_report"},
+            ],
         },
     ]
 
@@ -133,6 +136,6 @@ async def test_deep_research_stream_passes_mcp_servers_to_interactions(
             "type": "mcp_server",
             "name": "Fixture MCP",
             "url": "https://fixture.example.com/mcp",
-            "allowed_tools": ["get_fixture"],
+            "allowed_tools": [{"name": "get_fixture"}],
         }
     ]
