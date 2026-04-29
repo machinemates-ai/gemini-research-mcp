@@ -221,7 +221,9 @@ specialized/private data source.
 
 Use `allowed_tools` aggressively. For evidence-led workflows, expose read-only
 ledger/report/status tools to Deep Research and import the resulting report back
-through your own audit/quarantine path.
+through your own audit/quarantine path. The MCP server tool accepts the
+user-friendly string list shown above and normalizes it to the Gemini
+Interactions API `allowed_tools` object shape before sending the request.
 
 ## Usage
 
