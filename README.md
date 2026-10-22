@@ -7,8 +7,9 @@
 
 MCP server for AI-powered research using **Gemini**. Fast grounded search, URL extraction, comprehensive Deep Research, and session management.
 
-Built on **FastMCP `4.0.0b5`** (beta, exact-pinned) with the modern sessionless
-MCP protocol, **Gemini `3.8 Flash`**, MCP Tasks (SEP-1732), the guard-pattern
+Built on **FastMCP `4.1`** with the modern sessionless
+MCP protocol, **Gemini `4 Argon`** for web research and follow-ups
+(`3.8 Flash` for helpers), MCP Tasks (SEP-1732), the guard-pattern
 elicitation flow, a BM25-compacted tool catalog, and pluggable Disk/Redis
 storage with a zero-configuration local default.
 
@@ -30,7 +31,7 @@ flowchart TB
         FastMCP["FastMCP 4 Server<br/>@mcp.tool()<br/>BM25SearchTransform"]
         
         subgraph Tools["Tools"]
-            RW["research_web<br/>Quick lookup 5-30s"]
+            RW["research_web<br/>Grounded lookup"]
             RD["research_deep<br/>Autonomous 3-20min"]
             RF["research_followup<br/>Continue session"]
             RR["resume_research<br/>Recover interrupted"]
@@ -92,14 +93,14 @@ by relevance through `search_tools`.
 
 | Tool | Description | Latency | Visible by default |
 |------|-------------|---------|---------------------|
-| `research_web` | Fast web search with citations | 5-30 sec | ✅ |
+| `research_web` | Web search with citations | varies | ✅ |
 | `research_deep` | Multi-step autonomous research (MCP Tasks) | 3-20 min | ✅ |
 | `research_deep_max` | Maximum-comprehensiveness Deep Research for exhaustive/high-stakes work | longer-running | ✅ |
 | `resume_research` | Resume interrupted/in-progress sessions | instant | ✅ |
 | `export_research_session` | Disk-first export to persistent Markdown, JSON, or DOCX artifacts | instant | ✅ |
 | `search_tools` | Discover hidden utility tools by relevance (BM25) | instant | ✅ |
 | `call_tool` | Proxy to invoke any hidden tool by name | varies | ✅ |
-| `research_followup` | Continue conversation after research | 5-30 sec | discoverable |
+| `research_followup` | Continue conversation after research | varies | discoverable |
 | `list_research_sessions` | List saved research sessions | instant | discoverable |
 | `list_format_templates` | Browse report format templates | instant | discoverable |
 | `refine_research_plan` | Iterate on or approve a `collaborative_planning=True` plan | instant-3min | discoverable |
@@ -186,8 +187,8 @@ The bundle uses UV runtime - dependencies are installed automatically, no Python
 | Variable | Required | Default | Description |
 |----------|----------|---------|--------------|
 | `GEMINI_API_KEY` | **Yes** | — | [Google AI Studio API key](https://aistudio.google.com/apikey) |
-| `GEMINI_MODEL` | No | `gemini-3.8-flash` | Model for `research_web` |
-| `GEMINI_SUMMARY_MODEL` | No | `gemini-3.8-flash` | Model for session summaries, titles, and clarification (thinking level `low`) |
+| `GEMINI_MODEL` | No | `gemini-4-argon` | Shared model for `research_web` and `research_followup` |
+| `GEMINI_SUMMARY_MODEL` | No | `gemini-3.8-flash` | Model for session metadata, titles, and semantic session matching (thinking level `low`) |
 | `DEEP_RESEARCH_AGENT` | No | `deep-research-preview-04-2026` | Default agent for `research_deep`; accepts `fast`, `standard`, `deep-research`, `max`, `deep-research-max`, or exact agent IDs |
 | `FETCH_PROXY_URL` | No | — | Default HTTP(S) proxy for `fetch_webpage` |
 | `GEMINI_RESEARCH_STORAGE_URL` | No | — | `redis://...` URL to share sessions, exports, and (unless overridden) Tasks across multiple instances/workers. Local DiskStore + memory Tasks remain the default |
@@ -200,6 +201,17 @@ The bundle uses UV runtime - dependencies are installed automatically, no Python
 | `GEMINI_RESEARCH_HTTP_PORT` | No | `8000` | Bind port for `streamable-http` |
 | `GEMINI_RESEARCH_HTTP_PATH` | No | `/mcp` | URL path for `streamable-http` |
 | `GEMINI_RESEARCH_HTTP_BEARER_TOKEN` | No | — | Static bearer token required to call `streamable-http`. Never reuse `GEMINI_API_KEY` for this |
+
+The default [Gemini 4 Argon](https://ai.google.dev/gemini-api/docs/models/gemini-4-argon)
+model requires [paid-tier API access](https://ai.google.dev/gemini-api/docs/pricing#gemini-4-argon).
+To use the previous Flash model for web research and follow-ups, explicitly set
+`GEMINI_MODEL=gemini-3.8-flash` in the server environment. The server does not
+silently fall back to another model.
+
+Query clarification uses fixed `gemini-3.8-flash`; it is not controlled by
+`GEMINI_SUMMARY_MODEL`. Web research preserves HIGH thinking. Latency varies
+with the query and provider load; neither web research nor follow-ups have a
+fixed completion-time guarantee.
 
 ```bash
 cp .env.example .env

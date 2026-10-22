@@ -46,7 +46,7 @@
       {
         "name": "gemini_research_web",
         "displayName": "Gemini Quick Research",
-        "modelDescription": "Fast web research with Gemini grounding (5-30 seconds). Use for fact-checking, current events, documentation."
+        "modelDescription": "Web research with Gemini grounding and HIGH thinking; latency varies. Use for fact-checking, current events, documentation."
       },
       {
         "name": "gemini_research_deep",
@@ -65,7 +65,7 @@
         "gemini-research-mcp.apiKey": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Your Gemini API key. Get one at [Google AI Studio](https://aistudio.google.com/apikey).",
+          "markdownDescription": "Your Gemini API key. Get one at [Google AI Studio](https://aistudio.google.com/apikey). The default Argon model requires [paid-tier API access](https://ai.google.dev/gemini-api/docs/pricing#gemini-4-argon).",
           "scope": "application",
           "order": 1
         }

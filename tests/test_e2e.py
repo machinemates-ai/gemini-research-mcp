@@ -7,8 +7,17 @@ Skip these in CI unless API key is available (default behavior).
 """
 
 import os
+from contextlib import AsyncExitStack
 
 import pytest
+from google import genai
+from google.genai.types import (
+    FinishReason,
+    GenerateContentConfig,
+    GenerateContentResponse,
+    HttpOptions,
+    HttpRetryOptions,
+)
 
 
 @pytest.fixture
@@ -151,6 +160,7 @@ class TestResearchWebE2E:
         # Note: thinking_summary may be None depending on model behavior
 
 
+@pytest.mark.skipif(not os.environ.get("GEMINI_API_KEY"), reason="GEMINI_API_KEY not set")
 class TestSourceExtractionE2E:
     """Test source/citation extraction from responses."""
 
@@ -172,17 +182,103 @@ class TestSourceExtractionE2E:
 
     @pytest.mark.asyncio
     @pytest.mark.e2e
-    async def test_queries_are_captured(self):
-        """Search queries used by model should be captured."""
-        from gemini_research_mcp.quick import quick_research
+    @pytest.mark.timeout(240)
+    async def test_queries_are_captured(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The default model returns real grounding, not merely links in generated text."""
+        from gemini_research_mcp import quick
 
-        result = await quick_research(
-            "latest Python release version",
-            thinking_level="minimal",
-        )
+        monkeypatch.delenv("GEMINI_MODEL", raising=False)
+        captured: list[tuple[str, GenerateContentResponse]] = []
+        with genai.Client(
+            api_key=os.environ["GEMINI_API_KEY"],
+            http_options=HttpOptions(
+                timeout=180_000, retry_options=HttpRetryOptions(attempts=1)
+            ),
+        ) as client:
+            async with client.aio:
+                generate_content = client.aio.models.generate_content
 
-        # Queries may or may not be present depending on grounding behavior
-        assert hasattr(result, "queries")
+                async def record_response(
+                    *, model: str, contents: str, config: GenerateContentConfig
+                ) -> GenerateContentResponse:
+                    response = await generate_content(model=model, contents=contents, config=config)
+                    captured.append((model, response))
+                    return response
+
+                monkeypatch.setattr(client.aio.models, "generate_content", record_response)
+                monkeypatch.setattr(quick.genai, "Client", lambda **kwargs: client)
+                result = await quick.quick_research(
+                    "Use Google Search to check the official Python release notes for Python "
+                    "3.14. Give its release date and two changes with source links. "
+                    "Keep the answer below 120 words."
+                )
+
+        assert len(captured) == 1
+        model, response = captured[0]
+        assert model == "gemini-4-argon"
+        assert result.text.strip() and result.sources and result.queries
+        assert response.candidates
+        candidate = response.candidates[0]
+        assert candidate.finish_reason == FinishReason.STOP
+        grounding = candidate.grounding_metadata
+        assert grounding and grounding.grounding_chunks and grounding.web_search_queries
+        assert result.queries == list(grounding.web_search_queries)
+        assert [source.uri for source in result.sources] == [
+            chunk.web.uri for chunk in grounding.grounding_chunks if chunk.web
+        ]
+
+
+@pytest.mark.skipif(not os.environ.get("GEMINI_API_KEY"), reason="GEMINI_API_KEY not set")
+class TestResearchFollowupE2E:
+    @pytest.mark.asyncio
+    @pytest.mark.e2e
+    @pytest.mark.timeout(480)
+    async def test_argon_preserves_previous_context(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An Argon follow-up retains a synthetic Flash interaction's context."""
+        from gemini_research_mcp import deep
+
+        monkeypatch.delenv("GEMINI_MODEL", raising=False)
+        monkeypatch.setattr(deep, "_client_health", None)
+        with genai.Client(
+            api_key=os.environ["GEMINI_API_KEY"],
+            http_options=HttpOptions(
+                timeout=180_000, retry_options=HttpRetryOptions(attempts=1)
+            ),
+        ) as client:
+            async with client.aio, AsyncExitStack() as cleanup:
+                create = client.aio.interactions.create
+                seed = await create(
+                    model="gemini-3.8-flash",
+                    input="Synthetic compatibility test: remember RUBBER-DUCK-ARGON. Reply ACK.",
+                    generation_config={"thinking_level": "low"},
+                    timeout=180,
+                )
+                cleanup.push_async_callback(client.aio.interactions.delete, seed.id, timeout=60)
+                assert seed.status == "completed"
+                captured: list[tuple[str, str]] = []
+
+                async def record_followup(
+                    *, input: str, model: str, previous_interaction_id: str
+                ):
+                    interaction = await create(
+                        input=input,
+                        model=model,
+                        previous_interaction_id=previous_interaction_id,
+                        timeout=180,
+                    )
+                    cleanup.push_async_callback(
+                        client.aio.interactions.delete, interaction.id, timeout=60
+                    )
+                    captured.append((model, previous_interaction_id))
+                    return interaction
+
+                monkeypatch.setattr(client.aio.interactions, "create", record_followup)
+                monkeypatch.setattr(deep, "_get_healthy_client", lambda: client)
+                answer = await deep.research_followup(
+                    seed.id, "Repeat the exact marker from the previous turn and nothing else."
+                )
+                assert "RUBBER-DUCK-ARGON" in answer
+                assert captured == [("gemini-4-argon", seed.id)]
 
 
 class TestMCPToolsE2E:

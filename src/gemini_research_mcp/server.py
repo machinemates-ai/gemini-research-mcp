@@ -2,7 +2,7 @@
 Gemini Research MCP Server
 
 Provides AI-powered research tools via Gemini:
-- research_web: Fast grounded web search (5-30 seconds) - Gemini + Google Search
+- research_web: Grounded web search - Gemini + Google Search
 - research_deep: Comprehensive multi-step research (3-20 minutes) - Deep Research Agent
 - research_followup: Ask follow-up questions about completed research
 
@@ -183,7 +183,8 @@ Gemini Research MCP Server - AI-powered research toolkit
 ## Always Visible Tools
 
 ### Quick Lookup (research_web)
-Fast web research with Gemini grounding (5-30 seconds).
+Web research with Gemini grounding and HIGH thinking. Latency varies with
+the query and provider load.
 Use for: fact-checking, current events, documentation, "what is", "how to".
 
 ### Deep Research (research_deep)
@@ -416,9 +417,10 @@ async def research_web(
     include_thoughts: Annotated[bool, "Include thinking summary in response"] = False,
 ) -> str:
     """
-    Fast web research with Gemini grounding. Returns answer with citations in seconds.
+    Web research with Gemini grounding. Returns an answer with citations.
 
     Uses a fixed high thinking level for higher-quality grounded answers.
+    Latency varies with the query and provider load.
 
     Use for: quick lookups, fact-checking, current events, documentation, "what is",
     "how to", real-time information, news, API references, error messages.
@@ -1629,7 +1631,7 @@ async def research_followup(
     Args:
         query: Your follow-up question
         interaction_id: Optional specific session ID (from list_research_sessions)
-        model: Model to use (default: configured GEMINI_MODEL / gemini-3.8-flash)
+        model: Model to use (default: configured GEMINI_MODEL / gemini-4-argon)
 
     Returns:
         Response to the follow-up question
@@ -2329,8 +2331,11 @@ def get_research_models() -> str:
 
 ## Quick Research (research_web)
 
-**Model:** `{quick_model}`
-- **Latency:** 5-30 seconds
+**Model:** `{quick_model}` (shared `GEMINI_MODEL` setting)
+- **Latency:** Varies with the query and provider load
+- **Thinking:** HIGH
+- **Access:** Default Argon requires paid-tier API access; explicitly set
+  `GEMINI_MODEL=gemini-3.8-flash` to use Flash instead
 - **API:** Gemini + Google Search grounding
 - **Best for:** Fact-checking, current events, quick lookups, documentation
 - **Features:** Real-time web search, thinking summaries
@@ -2350,8 +2355,8 @@ def get_research_models() -> str:
 
 ## Follow-up (research_followup)
 
-**Model:** Configurable (default: gemini-3.8-flash)
-- **Latency:** 5-30 seconds
+**Model:** `{quick_model}` (shared `GEMINI_MODEL` setting; overridable per call)
+- **Latency:** Varies with the query and provider load
 - **API:** Gemini Interactions API
 - **Best for:** Clarification, elaboration, summarization of prior research
 - **Requires:** `previous_interaction_id` from completed research

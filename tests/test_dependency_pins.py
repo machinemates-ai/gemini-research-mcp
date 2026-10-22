@@ -1,30 +1,35 @@
-"""Pin verification tests for the FastMCP 4 beta migration.
+"""Dependency verification tests for the FastMCP 4 stable stack.
 
 These tests do NOT import gemini_research_mcp.server (which requires the
 FastMCP 4 core migration to be completed first). They only verify that the
-dependency stack pinned in pyproject.toml/uv.lock resolves to the exact
-versions expected for this migration, so a future accidental relock is
-caught immediately instead of surfacing as a confusing downstream failure.
+dependency stack resolved from pyproject.toml/uv.lock meets the floors expected
+for this migration, so a future accidental downgrade is caught immediately
+instead of surfacing as a confusing downstream failure.
 """
 
+import re
 from importlib.metadata import version
 
 import pytest
 
 
-def test_fastmcp_pinned_to_expected_beta() -> None:
-    """fastmcp must stay pinned to the exact 4.0.0b5 prerelease during migration."""
-    assert version("fastmcp") == "4.0.0b5"
+def _release(package: str) -> tuple[int, ...]:
+    raw = version(package)
+    assert re.fullmatch(r"\d+(\.\d+)*", raw), f"{package} {raw} is not a stable release"
+    return tuple(int(p) for p in raw.split("."))
 
 
-def test_fastmcp_slim_matches_fastmcp_beta() -> None:
-    """fastmcp-slim must match the fastmcp beta exactly (uv constraint-dependencies)."""
-    assert version("fastmcp-slim") == "4.0.0b5"
+def test_fastmcp_is_stable_4_1_or_newer() -> None:
+    """fastmcp must be a stable 4.x release, at least 4.1.3."""
+    release = _release("fastmcp")
+    assert release[0] == 4
+    assert release >= (4, 1, 3)
 
 
-def test_fastmcp_tasks_matches_fastmcp_beta() -> None:
-    """fastmcp-tasks must match the fastmcp beta exactly (uv constraint-dependencies)."""
-    assert version("fastmcp-tasks") == "4.0.0b5"
+@pytest.mark.parametrize("package", ["fastmcp-slim", "fastmcp-tasks"])
+def test_fastmcp_companions_match_fastmcp(package: str) -> None:
+    """fastmcp-slim and fastmcp-tasks are released in lockstep with fastmcp."""
+    assert version(package) == version("fastmcp")
 
 
 def test_mcp_sdk_is_v2() -> None:
@@ -37,13 +42,13 @@ def test_mcp_sdk_is_v2() -> None:
 def test_google_genai_is_latest_verified_stable() -> None:
     """google-genai should be at or above the latest stable verified at plan time.
 
-    2.20.0 was the latest stable release on PyPI when this migration was
+    2.32.0 was the latest stable release on PyPI when this migration was
     planned. This is a floor, not a ceiling: a newer stable release passing
     this test is expected and correct.
     """
     genai_version = version("google-genai")
     parts = tuple(int(p) for p in genai_version.split(".")[:2])
-    assert parts >= (2, 20), f"expected google-genai>=2.20, got {genai_version}"
+    assert parts >= (2, 32), f"expected google-genai>=2.32, got {genai_version}"
 
 
 def test_tasks_extension_importable() -> None:

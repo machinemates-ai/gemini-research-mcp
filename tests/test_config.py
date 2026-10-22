@@ -30,8 +30,8 @@ class TestConstants:
     """Test module-level constants."""
 
     def test_default_model(self):
-        """Default model should be gemini-3.8-flash."""
-        assert DEFAULT_MODEL == "gemini-3.8-flash"
+        """Default model should be gemini-4-argon."""
+        assert DEFAULT_MODEL == "gemini-4-argon"
 
     def test_default_agent(self):
         """Default agent should be deep-research-pro-preview."""

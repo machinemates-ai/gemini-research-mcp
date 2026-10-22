@@ -6,6 +6,7 @@ Run with: uv run pytest tests/ -v
 
 import types
 from datetime import date
+from unittest.mock import AsyncMock
 
 import pytest
 from google.genai.types import ThinkingLevel
@@ -61,41 +62,59 @@ class TestThinkingLevel:
         assert sources[0].title == "Python docs"
         assert sources[0].uri == "https://docs.python.org/3/library/dataclasses.html"
 
-    @pytest.mark.asyncio
-    async def test_quick_research_uses_fixed_high_thinking(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """quick_research should always send HIGH thinking to Gemini."""
-        captured: dict[str, object] = {}
-
-        async def fake_generate_content(*, model: str, contents: str, config: object) -> object:
-            captured["model"] = model
-            captured["contents"] = contents
-            captured["config"] = config
-            return types.SimpleNamespace(text="ok", candidates=[])
-
-        fake_client = types.SimpleNamespace(
-            aio=types.SimpleNamespace(
-                models=types.SimpleNamespace(generate_content=fake_generate_content)
-            )
-        )
-
-        monkeypatch.setattr("gemini_research_mcp.quick.get_api_key", lambda: "test-key")
-        monkeypatch.setattr("gemini_research_mcp.quick.get_model", lambda: "gemini-3.1-pro-preview")
-        monkeypatch.setattr(
-            "gemini_research_mcp.quick.genai.Client",
-            lambda api_key: fake_client,
-        )
-
-        await quick_research("test query", thinking_level="minimal")
-
-        config = captured["config"]
-        assert config.thinking_config.thinking_level == ThinkingLevel.HIGH
-
     def test_default_is_high(self):
         """Default thinking level should be 'high'."""
         assert DEFAULT_THINKING_LEVEL == "high"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "configured,explicit,expected",
+    [
+        (None, None, "gemini-4-argon"),
+        ("gemini-3.8-flash", None, "gemini-3.8-flash"),
+        ("gemini-3.8-flash", "custom-model", "custom-model"),
+    ],
+)
+async def test_shared_model_routing(
+    monkeypatch: pytest.MonkeyPatch,
+    configured: str | None,
+    explicit: str | None,
+    expected: str,
+) -> None:
+    """Both provider paths honor model precedence without reducing web thinking."""
+    from gemini_research_mcp import deep, quick
+
+    if configured is None:
+        monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    else:
+        monkeypatch.setenv("GEMINI_MODEL", configured)
+
+    generate = AsyncMock(return_value=types.SimpleNamespace(text="answer", candidates=[]))
+    create = AsyncMock(return_value=types.SimpleNamespace(output_text="answer"))
+    client = types.SimpleNamespace(
+        aio=types.SimpleNamespace(
+            models=types.SimpleNamespace(generate_content=generate),
+            interactions=types.SimpleNamespace(create=create),
+        )
+    )
+    monkeypatch.setattr(quick, "get_api_key", lambda: "synthetic-key")
+    monkeypatch.setattr(quick.genai, "Client", lambda **kwargs: client)
+    monkeypatch.setattr(deep, "_get_healthy_client", lambda: client)
+    monkeypatch.setattr(deep, "_client_health", None)
+
+    result = await quick_research("synthetic query", model=explicit, thinking_level="minimal")
+    followup = await deep.research_followup("synthetic-id", "synthetic query", model=explicit)
+
+    assert result.text == followup == "answer"
+    generate.assert_awaited_once()
+    create.assert_awaited_once_with(
+        input="synthetic query", model=expected, previous_interaction_id="synthetic-id"
+    )
+    assert generate.await_args.kwargs["model"] == expected
+    config = generate.await_args.kwargs["config"]
+    assert config.thinking_config.thinking_level == ThinkingLevel.HIGH
+    assert config.tools[0].google_search is not None
 
 
 class TestSystemPrompt:

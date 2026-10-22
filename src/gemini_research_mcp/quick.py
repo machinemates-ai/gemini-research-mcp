@@ -1,7 +1,7 @@
 """
 Quick research using Gemini grounded search.
 
-Provides fast web research with citations in 5-30 seconds.
+Provides grounded web research with citations.
 """
 
 from __future__ import annotations
@@ -122,11 +122,11 @@ async def quick_research(
     Fast grounded search using google_search tool.
 
     Returns response grounded in real-time web search results.
-    Typically completes in 5-30 seconds.
+    Uses HIGH thinking; latency varies with the query and provider load.
 
     Args:
         query: Research question or topic
-        model: Gemini model (default: configured GEMINI_MODEL / gemini-3.8-flash)
+        model: Gemini model (default: configured GEMINI_MODEL / gemini-4-argon)
         thinking_level: Accepted for backward compatibility but ignored; quick research
             always uses high thinking
         system_instruction: Optional system prompt
