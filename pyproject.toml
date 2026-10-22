@@ -34,24 +34,15 @@ classifiers = [
 ]
 dependencies = [
     # Latest stable google-genai SDK (verified against PyPI at implementation time)
-    "google-genai>=2.20.0,<3.0.0",
-    # FastMCP 4 beta: sessionless protocol (2026-07-28), Tasks extension, BM25 tool search
-    "fastmcp[tasks]==4.0.0b5",
+    "google-genai>=2.32.0,<3.0.0",
+    # FastMCP 4: sessionless protocol (2026-07-28), Tasks extension, BM25 tool search
+    "fastmcp[tasks]>=4.1.3,<5",
     "httpx>=0.28.1",
     "python-dotenv>=1.2.1",
     # Persistent storage using industry-standard key-value interface (used by FastMCP, agentpool, etc.)
     "py-key-value-aio[disk]>=0.4.5,<0.5.0",
     # XDG-compliant platform-specific directories
     "platformdirs>=4.5.1",
-]
-
-[tool.uv]
-# uv only allows prereleases for packages explicitly named here. fastmcp-slim and
-# fastmcp-tasks are transitive dependencies of fastmcp[tasks] and must be pinned
-# to the exact same beta to keep resolution deterministic.
-constraint-dependencies = [
-    "fastmcp-slim==4.0.0b5",
-    "fastmcp-tasks==4.0.0b5",
 ]
 
 [project.optional-dependencies]

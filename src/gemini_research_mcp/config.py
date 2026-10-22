@@ -31,7 +31,7 @@ DOCKET_URL_ENV_VAR = "FASTMCP_DOCKET_URL"
 # =============================================================================
 
 # Default models - can be overridden via environment
-DEFAULT_MODEL = "gemini-3.8-flash"
+DEFAULT_MODEL = "gemini-4-argon"
 # Interactions Deep Research agent used by research_deep by default.
 DEFAULT_DEEP_RESEARCH_AGENT = DeepResearchAgent.DEEP_RESEARCH
 # Model for generating summaries (fast, cheap)

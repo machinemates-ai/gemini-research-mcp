@@ -1247,7 +1247,7 @@ async def research_followup(
                                  (available as result.interaction_id from research_deep)
         query: The follow-up question
         model: Model to use for the follow-up. Defaults to the configured
-               GEMINI_MODEL / DEFAULT_MODEL (currently gemini-3.8-flash).
+               GEMINI_MODEL / DEFAULT_MODEL (currently gemini-4-argon).
 
     Returns:
         The text response to the follow-up question

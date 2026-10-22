@@ -4,14 +4,14 @@ AI-powered research tools for GitHub Copilot Chat, powered by Google Gemini.
 
 ## Features
 
-- **🔎 Quick Research** (`research_web`): Fast web search with Gemini grounding (5-30 seconds)
+- **🔎 Quick Research** (`research_web`): Web search with Gemini grounding and HIGH thinking; latency varies
 - **🔬 Deep Research** (`research_deep`): Comprehensive autonomous research agent (3-20 minutes)
 - **🧰 Research Utilities** (`search_tools` + `call_tool`): Discover URL reading, follow-up, resume, session, template, and export tools on demand
 
 ## Quick Start
 
 1. Install this extension
-2. Get a [Gemini API key](https://aistudio.google.com/apikey)
+2. Get a [Gemini API key](https://aistudio.google.com/apikey) with paid-tier access for the default Argon model
 3. Set your API key in VS Code Settings → Gemini Research MCP → API Key
 4. Open Copilot Chat and ask: "research the latest developments in quantum computing"
 
@@ -37,6 +37,13 @@ Copilot can discover the utility tools automatically through FastMCP's search tr
 | Setting | Description |
 |---------|-------------|
 | `gemini-research-mcp.apiKey` | Your Gemini API key |
+
+The default `gemini-4-argon` model is shared by web research and follow-ups and
+requires [paid-tier API access](https://ai.google.dev/gemini-api/docs/pricing#gemini-4-argon).
+For a [manual MCP configuration](https://github.com/machinemates-ai/gemini-research-mcp#usage),
+set `GEMINI_MODEL=gemini-3.8-flash` in the server environment to use the previous
+Flash model instead. Helpers remain on Flash. Latency depends on the query and
+provider load, not a fixed completion window.
 
 ## Links
 

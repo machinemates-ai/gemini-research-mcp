@@ -5,7 +5,8 @@ ensuring compatibility with VS Code, Claude Desktop, and other MCP clients.
 
 Run with: uv run pytest tests/test_e2e_mcp_transport.py -v --tb=short
 
-These tests do NOT require GEMINI_API_KEY - they only validate the MCP protocol.
+Protocol tests do not require GEMINI_API_KEY. The opt-in e2e test makes a
+real paid Gemini request and requires the key.
 """
 
 import json
@@ -21,7 +22,9 @@ from mcp.client.session import ClientSession
 
 
 @asynccontextmanager
-async def _gemini_stdio_session() -> AsyncIterator[ClientSession]:
+async def _gemini_stdio_session(
+    *, read_timeout_seconds: float = 30
+) -> AsyncIterator[ClientSession]:
     """Open a real stdio MCP client session against the main server."""
     from mcp.client.stdio import StdioServerParameters, stdio_client
 
@@ -34,7 +37,9 @@ async def _gemini_stdio_session() -> AsyncIterator[ClientSession]:
     )
 
     async with stdio_client(server) as (read_stream, write_stream):
-        session = ClientSession(read_stream, write_stream)
+        session = ClientSession(
+            read_stream, write_stream, read_timeout_seconds=read_timeout_seconds
+        )
         async with session:
             await session.initialize()
             yield session
@@ -177,6 +182,75 @@ class TestToolSearchOverStdio:
         payload = json.loads(result.structured_content["result"])
 
         assert payload["count"] > 0
+
+
+@pytest.mark.skipif(not os.environ.get("GEMINI_API_KEY"), reason="GEMINI_API_KEY not set")
+class TestLiveResearchOverStdio:
+    @pytest.mark.asyncio
+    @pytest.mark.e2e
+    @pytest.mark.timeout(240)
+    async def test_research_web_default_model(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.delenv("GEMINI_MODEL", raising=False)
+        monkeypatch.setenv("GEMINI_RESEARCH_STORAGE_PATH", str(tmp_path))
+        monkeypatch.delenv("GEMINI_RESEARCH_STORAGE_URL", raising=False)
+        monkeypatch.delenv("FASTMCP_DOCKET_URL", raising=False)
+        async with _gemini_stdio_session(read_timeout_seconds=180) as session:
+            models = await session.read_resource("research://models")
+            assert any(
+                "gemini-4-argon" in getattr(item, "text", "") for item in models.contents
+            )
+            result = await session.call_tool(
+                "research_web",
+                {
+                    "query": "Use Google Search to find the official FastMCP documentation. "
+                    "Return one sentence describing FastMCP and its documentation link."
+                },
+            )
+        text = "\n".join(getattr(item, "text", "") for item in result.content)
+        assert result.is_error is False
+        assert "Sources" in text and "❌" not in text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "tool_name,agent_id",
+    [
+        ("research_deep", "deep-research-preview-04-2026"),
+        ("research_deep_max", "deep-research-max-preview-04-2026"),
+    ],
+)
+async def test_required_deep_tools_complete_tasks_without_provider(
+    monkeypatch: pytest.MonkeyPatch, tool_name: str, agent_id: str
+) -> None:
+    from fastmcp import Client, Context
+    from fastmcp_tasks import call_tool_task
+
+    from gemini_research_mcp import server
+    from gemini_research_mcp.types import DeepResearchAgent
+
+    monkeypatch.delenv("DEEP_RESEARCH_AGENT", raising=False)
+    monkeypatch.setattr(server, "list_resumable_sessions", lambda **kwargs: [])
+    calls: list[tuple[str, str]] = []
+
+    async def synthetic_run(
+        *, ctx: Context, tool_name: str, agent_name: DeepResearchAgent, **kwargs: object
+    ) -> str:
+        assert ctx.is_background_task
+        calls.append((tool_name, agent_name.value))
+        await ctx.report_progress(progress=50, total=100, message="synthetic-review-progress")
+        return "SYNTHETIC_REPORT"
+
+    monkeypatch.setattr(server, "_run_deep_research_tool", synthetic_run)
+    async with Client(server.mcp, timeout=15) as client:
+        handle = await call_tool_task(client, tool_name, {"query": "Synthetic task routing only"})
+        assert handle.task_id
+        final = await handle.wait(timeout=10)
+        assert final.status == "completed"
+        result = await handle.result()
+        assert result.data == "SYNTHETIC_REPORT"
+    assert calls == [(tool_name, agent_id)]
 
 
 class TestMCPResourceRegistration:
@@ -352,4 +426,3 @@ class TestFastMCPDecorator:
         from gemini_research_mcp.server import research_deep
 
         assert research_deep.__name__ == "research_deep"
-
