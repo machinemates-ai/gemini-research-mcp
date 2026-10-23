@@ -154,6 +154,27 @@ def get_tasks_backend_url() -> str | None:
     return None
 
 
+LDR_COMMAND_ENV_VAR = "GEMINI_RESEARCH_LDR_COMMAND"
+LDR_ALLOW_HTTP_ENV_VAR = "GEMINI_RESEARCH_LDR_ALLOW_HTTP"
+
+
+def get_ldr_command() -> str | None:
+    """Absolute path of the operator-installed Local Deep Research MCP command.
+
+    Returns None when unset, blank, or not an absolute path. The value is never
+    resolved through PATH, so the bridge cannot be redirected by a lookalike.
+    """
+    raw = (os.environ.get(LDR_COMMAND_ENV_VAR) or "").strip()
+    if not raw or not Path(raw).is_absolute():
+        return None
+    return raw
+
+
+def get_ldr_allow_http() -> bool:
+    """Whether the explicit opt-in for a non-stdio LDR endpoint is set."""
+    return os.environ.get(LDR_ALLOW_HTTP_ENV_VAR, "").strip().lower() in {"1", "true", "yes"}
+
+
 # =============================================================================
 # Export directory
 # =============================================================================
