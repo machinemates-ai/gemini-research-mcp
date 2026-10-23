@@ -254,6 +254,12 @@ The local engine is **not** offered over HTTP unless the operator sets
 `GEMINI_RESEARCH_LDR_ALLOW_HTTP=true`
 (`LOCAL_ENGINE_HTTP_DISABLED` otherwise).
 
+### Follow-ups on agent research
+
+The Gemini API does not let a model continue an interaction that belongs to a
+Deep Research agent. `research_followup` therefore answers from the report stored
+in the session, treated as untrusted context, in a stateless model call.
+
 ### Optional local engine (Local Deep Research)
 
 The bridge targets an operator-installed `ldr-mcp` pinned to LDR commit
@@ -271,6 +277,10 @@ all are set, and the Gemini-only default never spawns a child process.
   query is sent.
 - No boolean here is human authorization; the caller decides whether to run a
   paid or networked workload.
+- LDR can return a report with **no sources** when its search backend throttles
+  or its relevance filter drops every result (observed with Wikipedia and a 4B
+  model). The bundle then lists no sources for that engine; the report is still
+  kept verbatim and untrusted.
 
 ### Bundles
 
