@@ -21,6 +21,8 @@ class TestToolSearchTransform:
             "research_deep_max",
             "resume_research",
             "export_research_session",
+            "research_run",
+            "research_compare",
             "search_tools",
             "call_tool",
         }

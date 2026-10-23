@@ -18,8 +18,14 @@ ALWAYS_VISIBLE = {
     "research_deep_max",
     "resume_research",
     "export_research_session",
+    "research_run",
+    "research_compare",
 }
 HIDDEN_BUT_DISCOVERABLE = {
+    "list_research_engines",
+    "list_research_runs",
+    "get_research_run",
+    "export_research_bundle",
     "fetch_webpage",
     "research_followup",
     "list_research_sessions",
@@ -54,7 +60,7 @@ class TestCompactCatalog:
 
     @pytest.mark.asyncio
     async def test_catalog_is_compact(self):
-        """5 pinned tools + search_tools + call_tool = 7, not all 11 registered tools."""
+        """7 pinned tools + search_tools + call_tool = 9, not all registered tools."""
         tools = await mcp.list_tools()
         assert len(tools) == len(ALWAYS_VISIBLE) + 2
 

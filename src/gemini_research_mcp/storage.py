@@ -964,9 +964,19 @@ class ExportArtifact:
     mime_type: str
     content_b64: str  # base64-encoded bytes, for JSON-serializable storage
     created_at: float  # Unix timestamp
+    # Artifacts of job-linked runs carry the owner; legacy artifacts stay unscoped.
+    scoped: bool = False
+    owner_scope: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        if not self.scoped:
+            data.pop("scoped")
+            data.pop("owner_scope")
+        return data
+
+    def visible_to(self, scope: str | None) -> bool:
+        return not self.scoped or self.owner_scope == scope
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ExportArtifact:
@@ -978,6 +988,8 @@ class ExportArtifact:
             mime_type=data["mime_type"],
             content_b64=data["content_b64"],
             created_at=data["created_at"],
+            scoped=bool(data.get("scoped", False)),
+            owner_scope=data.get("owner_scope"),
         )
 
     @property
@@ -1017,6 +1029,8 @@ class ExportArtifactStore:
         format: str,
         mime_type: str,
         content: bytes,
+        scoped: bool = False,
+        owner_scope: str | None = None,
     ) -> str:
         """Persist an export and return its unique export_id."""
         import base64
@@ -1031,6 +1045,8 @@ class ExportArtifactStore:
             mime_type=mime_type,
             content_b64=base64.b64encode(content).decode("ascii"),
             created_at=time.time(),
+            scoped=scoped,
+            owner_scope=owner_scope if scoped else None,
         )
         await self._store.put(
             export_id,

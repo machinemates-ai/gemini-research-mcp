@@ -924,14 +924,17 @@ _service: ResearchJobService | None = None
 _service_storage: ResearchJobStorage | None = None
 
 
-def get_job_service() -> ResearchJobService:
-    """Process-wide service bound to the current global job storage."""
+def get_job_service(persist_images: PersistImages | None = None) -> ResearchJobService:
+    """Process-wide service bound to the current global job storage.
+
+    ``persist_images`` is only used when the service is first built.
+    """
     global _service, _service_storage
     storage = get_job_storage()
     if _service is None or _service_storage is not storage:
         if _service is not None:
             _service.revoke_ownership()
             _service._lease.release()
-        _service = ResearchJobService(storage)
+        _service = ResearchJobService(storage, persist_images=persist_images)
         _service_storage = storage
     return _service
