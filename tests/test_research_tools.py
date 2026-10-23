@@ -12,6 +12,7 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from fastmcp.tools.base import ToolResult
 from fastmcp_tasks import call_tool_task
+from mcp.shared.exceptions import MCPError
 from research_fakes import LOCAL_ID, Engines, FakeEngine, boom, report
 
 from gemini_research_mcp import job_tools, server, storage
@@ -306,12 +307,15 @@ async def test_export_bundle_is_attributed_and_makes_no_provider_call(
 # -- ownership --------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("bundle_format", ["json", "markdown"])
 async def test_runs_sessions_and_artifacts_are_invisible_to_other_principals(
-    client: Client, engines: Engines, monkeypatch: pytest.MonkeyPatch
+    client: Client, engines: Engines, monkeypatch: pytest.MonkeyPatch, bundle_format: str
 ) -> None:
     as_scope(monkeypatch, "alice")
     run = (await submit(client, "research_run", {"query": "q"})).structured_content["run"]
-    exported = await call(client, "export_research_bundle", {"run_id": run["run_id"]})
+    exported = await call(
+        client, "export_research_bundle", {"run_id": run["run_id"], "format": bundle_format}
+    )
     export_uri = exported.structured_content["bundle"]["resource_uri"]
     session_id = run["provider_id"]
     legacy = await call(
@@ -320,8 +324,11 @@ async def test_runs_sessions_and_artifacts_are_invisible_to_other_principals(
     assert "Saved to" in legacy.content[0].text
 
     assert server.get_research_session(session_id) is not None
-    export_id = export_uri.rsplit("/", 1)[1]
-    assert (await server.get_export_by_id(export_id)).text
+    assert (await client.read_resource(export_uri))[0].text
+    artifacts = await storage.get_export_store().list_async()
+    docx = next(a for a in artifacts if a.format == "docx")
+    docx_uri = f"research://exports/{docx.export_id}"
+    assert (await client.read_resource(docx_uri))[0].blob
 
     as_scope(monkeypatch, "bob")
     assert (await call(client, "list_research_runs")).structured_content["runs"] == []
@@ -333,9 +340,10 @@ async def test_runs_sessions_and_artifacts_are_invisible_to_other_principals(
         assert denied.is_error and "RUN_NOT_FOUND" in denied.content[0].text
     assert server.get_research_session(session_id) is None
     assert session_id not in {s.interaction_id for s in server._list_sessions()}
-    with pytest.raises(ValueError, match="not found"):
-        await server.get_export_by_id(export_id)
-    assert json.loads(await server.list_exports())["count"] == 0
+    for uri in (export_uri, docx_uri):
+        with pytest.raises(MCPError, match="not found"):
+            await client.read_resource(uri)
+    assert json.loads((await client.read_resource("research://exports"))[0].text)["count"] == 0
     denied_export = await call(
         client, "export_research_session", {"interaction_id": session_id, "format": "json"}
     )

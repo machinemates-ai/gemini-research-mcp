@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from fastmcp import Context, FastMCP
+from fastmcp.resources import ResourceContent, ResourceResult
 from fastmcp.server.transforms.search import BM25SearchTransform
 from fastmcp.utilities.tasks import TaskConfig
 from fastmcp_tasks import TasksExtension
@@ -2477,7 +2478,7 @@ def get_research_models() -> str:
     name="Research Export",
     description="Download an exported research report. Use export_research_session tool first.",
 )
-async def get_export_by_id(export_id: str) -> BlobResourceContents | TextResourceContents:
+async def get_export_by_id(export_id: str) -> ResourceResult:
     """
     Retrieve an exported research report by its export ID.
 
@@ -2494,8 +2495,6 @@ async def get_export_by_id(export_id: str) -> BlobResourceContents | TextResourc
     Returns:
         Resource content with proper MIME type (Markdown, JSON, or DOCX)
     """
-    import base64
-
     entry = await _get_cached_export(export_id)
     if entry is not None and not entry.visible_to(get_task_scope()):
         entry = None
@@ -2504,23 +2503,12 @@ async def get_export_by_id(export_id: str) -> BlobResourceContents | TextResourc
 
     logger.info("📥 Serving export %s (%s)", export_id, entry.filename)
 
-    uri = f"research://exports/{export_id}"
-    mime_type = entry.mime_type
-
-    # For text formats, return TextResourceContents
-    if mime_type in ("text/markdown", "application/json"):
-        return TextResourceContents(
-            uri=uri,
-            mime_type=mime_type,
-            text=entry.content.decode("utf-8"),
-        )
-
-    # For binary formats (DOCX), return BlobResourceContents with base64
-    return BlobResourceContents(
-        uri=uri,
-        mime_type=mime_type,
-        blob=base64.b64encode(entry.content).decode("ascii"),
+    content = (
+        entry.content.decode("utf-8")
+        if entry.mime_type in ("text/markdown", "application/json")
+        else entry.content
     )
+    return ResourceResult([ResourceContent(content, mime_type=entry.mime_type)])
 
 
 @mcp.resource(
