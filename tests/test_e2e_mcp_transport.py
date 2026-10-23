@@ -96,6 +96,8 @@ class TestMCPToolRegistration:
             "research_deep_max",
             "resume_research",
             "export_research_session",
+            "research_run",
+            "research_compare",
             "search_tools",
             "call_tool",
         }
@@ -109,7 +111,7 @@ class TestMCPToolRegistration:
         from gemini_research_mcp.server import mcp
 
         tools = await mcp.list_tools()
-        assert len(tools) == 7, f"Expected 7 tools, got {len(tools)}"
+        assert len(tools) == 9, f"Expected 9 tools, got {len(tools)}"
 
     @pytest.mark.asyncio
     async def test_tools_have_descriptions(self):
@@ -138,6 +140,8 @@ class TestToolSearchOverStdio:
             "research_deep_max",
             "resume_research",
             "export_research_session",
+            "research_run",
+            "research_compare",
             "search_tools",
             "call_tool",
         }

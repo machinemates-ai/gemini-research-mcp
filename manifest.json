@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "gemini-research-mcp",
   "display_name": "Gemini Research",
-  "version": "0.16.0-beta.4",
+  "version": "0.17.0",
   "description": "AI-powered research using Gemini 4 Argon and FastMCP 4 with compact tool search and recoverable Deep Research",
   "long_description": "MCP server providing AI-powered research capabilities using Google Gemini 4 Argon and FastMCP 4.1:\n\n- **research_web**: Web research with Gemini grounding and HIGH thinking; latency varies with query and provider load\n- **research_followup**: Continue prior research using the shared GEMINI_MODEL setting\n- **research_deep**: Autonomous research with recoverable session storage and modern steps/output_text report extraction\n- **research_deep_max**: Maximum-comprehensiveness research with visualization and collaborative planning\n- **search_tools** / **call_tool**: Compact BM25 discovery and invocation of utility tools\n- **resume_research** / **export_research_session**: Recover sessions and persist Markdown, JSON, or DOCX artifacts\n\nDefault Argon requires paid-tier API access. Explicitly set GEMINI_MODEL=gemini-3.8-flash to use Flash for web research and follow-ups. Helpers remain on Flash.\n\nThe server supports stdio and guarded streamable HTTP transports plus shared Disk/Redis storage.",
   "author": {
@@ -34,6 +34,30 @@
     }
   },
   "tools": [
+    {
+      "name": "research_run",
+      "description": "Engine-neutral research job with Gemini by default or an optional local engine; recoverable when native."
+    },
+    {
+      "name": "research_compare",
+      "description": "Run exactly two engines on one query and return attributed, unsynthesized reports."
+    },
+    {
+      "name": "list_research_engines",
+      "description": "List engines, backends, models and availability without calling a provider."
+    },
+    {
+      "name": "list_research_runs",
+      "description": "List metadata of your research jobs and comparisons."
+    },
+    {
+      "name": "get_research_run",
+      "description": "Read one research run by run ID; refresh re-polls a native provider job."
+    },
+    {
+      "name": "export_research_bundle",
+      "description": "Export an attributed JSON or Markdown bundle of a run without any model or search call."
+    },
     {
       "name": "research_web",
       "description": "Web research with Gemini grounding and HIGH thinking; latency varies. Use for fact-checking, current events, and documentation."

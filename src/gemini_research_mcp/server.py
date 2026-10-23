@@ -21,15 +21,17 @@ import contextlib
 import json
 import logging
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastmcp import Context, FastMCP
+from fastmcp.resources import ResourceContent, ResourceResult
 from fastmcp.server.transforms.search import BM25SearchTransform
 from fastmcp.utilities.tasks import TaskConfig
 from fastmcp_tasks import TasksExtension
+from fastmcp_tasks.context import get_task_scope
 
 # Raw MCP types
 from mcp.types import (
@@ -70,6 +72,8 @@ from gemini_research_mcp.export import (
     ExportResult,
     export_session,
 )
+from gemini_research_mcp.job_tools import register_job_tools, set_http_transport
+from gemini_research_mcp.jobs import ResearchJobService, get_job_service
 from gemini_research_mcp.quick import (
     generate_session_metadata,
     generate_title_from_query,
@@ -82,13 +86,18 @@ from gemini_research_mcp.storage import (
     ResearchStatus,
     delete_research_session,
     get_export_store,
-    get_research_session,
-    list_resumable_sessions,
+    get_job_storage,
     save_research_session,
     update_research_session,
 )
 from gemini_research_mcp.storage import (
-    list_research_sessions as _list_sessions,
+    get_research_session as _get_research_session,
+)
+from gemini_research_mcp.storage import (
+    list_research_sessions as _list_all_sessions,
+)
+from gemini_research_mcp.storage import (
+    list_resumable_sessions as _list_all_resumable,
 )
 from gemini_research_mcp.types import (
     DeepResearchAgent,
@@ -125,7 +134,13 @@ DEEP_RESEARCH_POLL_MAX_WAIT_SECONDS = 1200
 DEEP_RESEARCH_POLL_INTERVAL_SECONDS = 10
 
 
-async def _cache_export(result: ExportResult, session_id: str) -> str:
+async def _cache_export(
+    result: ExportResult,
+    session_id: str,
+    *,
+    scoped: bool = False,
+    owner_scope: str | None = None,
+) -> str:
     """Persist an export artifact and return its unique ID."""
     return await get_export_store().save_async(
         session_id=session_id,
@@ -133,7 +148,64 @@ async def _cache_export(result: ExportResult, session_id: str) -> str:
         format=result.format.value,
         mime_type=result.mime_type,
         content=result.content,
+        scoped=scoped,
+        owner_scope=owner_scope,
     )
+
+
+async def _cache_bundle(result: ExportResult, run_id: str, owner_scope: str | None) -> str:
+    """Persist a research bundle, always scoped to its owner."""
+    return await _cache_export(result, run_id, scoped=True, owner_scope=owner_scope)
+
+
+# =============================================================================
+# Ownership guards for job-linked sessions (v0.17)
+# =============================================================================
+# Sessions created by research_run/research_compare carry job_id/owner_scope.
+# Historical and legacy-tool sessions have neither and stay globally visible.
+
+
+async def _persist_job_images(session_id: str, images: Sequence[dict[str, Any]]) -> list[str]:
+    export_ids, _ = await _persist_deep_research_images(
+        session_id=session_id, images=[dict(image) for image in images]
+    )
+    return export_ids
+
+
+def _job_service() -> ResearchJobService:
+    return get_job_service(persist_images=_persist_job_images)
+
+
+def _session_visible(session: ResearchSession) -> bool:
+    return session.job_id is None or session.owner_scope == get_task_scope()
+
+
+def _session_busy(session: ResearchSession) -> bool:
+    """True while this process is still executing the job that owns the session."""
+    return session.job_id is not None and _job_service().is_owned(session.job_id)
+
+
+def get_research_session(interaction_id: str) -> ResearchSession | None:
+    session = _get_research_session(interaction_id)
+    return session if session is not None and _session_visible(session) else None
+
+
+def _list_sessions(
+    *,
+    include_expired: bool = False,
+    tags: list[str] | None = None,
+    limit: int | None = None,
+) -> list[ResearchSession]:
+    sessions = [
+        s
+        for s in _list_all_sessions(include_expired=include_expired, tags=tags, limit=None)
+        if _session_visible(s)
+    ]
+    return sessions if limit is None else sessions[:limit]
+
+
+def list_resumable_sessions(limit: int = 10) -> list[ResearchSession]:
+    return [s for s in _list_all_resumable(limit=10_000) if _session_visible(s)][:limit]
 
 
 async def _get_cached_export(export_id: str) -> ExportArtifact | None:
@@ -165,6 +237,13 @@ async def lifespan(app: FastMCP) -> AsyncIterator[None]:
             )
     except Exception as e:
         logger.warning("Failed to check for resumable sessions: %s", e)
+
+    try:
+        removed = await get_job_storage().cleanup_expired_async()
+        if removed:
+            logger.info("Removed %d expired research job record(s)", removed)
+    except Exception as e:
+        logger.warning("Failed to clean up expired research jobs: %s", e)
 
     yield
 
@@ -238,6 +317,12 @@ mcp.add_extension(
     TasksExtension(url=get_tasks_backend_url(), name="gemini-research-mcp")
 )
 
+register_job_tools(
+    mcp,
+    get_service=lambda: _job_service(),
+    save_artifact=lambda result, run_id, scope: _cache_bundle(result, run_id, scope),
+)
+
 # Keep the visible tool catalog compact via BM25 relevance search. The five
 # tools most clients need immediately stay always-visible in list_tools();
 # the rest (fetch_webpage, research_followup, list_research_sessions,
@@ -252,6 +337,8 @@ mcp.add_transform(
             "research_deep_max",
             "resume_research",
             "export_research_session",
+            "research_run",
+            "research_compare",
         ],
         max_results=5,
     )
@@ -350,6 +437,8 @@ def _format_plan_response(plan_text: str, interaction_id: str) -> str:
 async def _persist_deep_research_image(
     *,
     session_id: str,
+    scoped: bool = False,
+    owner_scope: str | None = None,
     index: int,
     data_b64: str | None,
     mime_type: str | None,
@@ -378,6 +467,8 @@ async def _persist_deep_research_image(
         format="image",
         mime_type=resolved_mime,
         content=content,
+        scoped=scoped,
+        owner_scope=owner_scope,
     )
     return export_id, f"research://exports/{export_id}"
 
@@ -386,6 +477,9 @@ async def _persist_deep_research_images(
     *, session_id: str, images: list[dict[str, object]]
 ) -> tuple[list[str], list[str]]:
     """Persist a batch of Deep Research images, returning (export_ids, resource_uris)."""
+    linked = _get_research_session(session_id)
+    scoped = linked is not None and linked.job_id is not None
+    owner_scope = linked.owner_scope if linked is not None else None
     export_ids: list[str] = []
     resource_uris: list[str] = []
     for index, image in enumerate(images):
@@ -394,6 +488,8 @@ async def _persist_deep_research_images(
         uri = image.get("uri")
         export_id, resource_uri = await _persist_deep_research_image(
             session_id=session_id,
+            scoped=scoped,
+            owner_scope=owner_scope,
             index=index,
             data_b64=data if isinstance(data, str) else None,
             mime_type=mime_type if isinstance(mime_type, str) else None,
@@ -1686,10 +1782,12 @@ async def research_followup(
                     matchable[0].query[:50],
                 )
 
+        followup_session = get_research_session(previous_interaction_id)
         response = await _research_followup(
             previous_interaction_id=previous_interaction_id,
             query=query,
             model=model,
+            report_text=followup_session.report_text if followup_session else None,
         )
 
         lines = [
@@ -1876,6 +1974,15 @@ async def resume_research(
             return json.dumps({
                 "status": "not_found",
                 "message": f"Session not found: {interaction_id}",
+            })
+
+        if _session_busy(session):
+            return json.dumps({
+                "status": "busy",
+                "message": (
+                    "This session belongs to a research job that is still running in this "
+                    "process. Use get_research_run to follow it."
+                ),
             })
 
         # If already completed, return the report
@@ -2233,7 +2340,12 @@ async def export_research_session(
 
         # Persist every export so research://exports/{id} survives process restarts
         # and is shared by workers when the Redis backend is configured.
-        export_id = await _cache_export(result, session.interaction_id)
+        export_id = await _cache_export(
+            result,
+            session.interaction_id,
+            scoped=session.job_id is not None,
+            owner_scope=session.owner_scope,
+        )
 
         # Return EmbeddedResource for all formats to enable VS Code "Save As" button
         # Following the ElevenLabs MCP pattern: put filename in URI for browser-like save dialog
@@ -2368,7 +2480,7 @@ def get_research_models() -> str:
     name="Research Export",
     description="Download an exported research report. Use export_research_session tool first.",
 )
-async def get_export_by_id(export_id: str) -> BlobResourceContents | TextResourceContents:
+async def get_export_by_id(export_id: str) -> ResourceResult:
     """
     Retrieve an exported research report by its export ID.
 
@@ -2385,31 +2497,20 @@ async def get_export_by_id(export_id: str) -> BlobResourceContents | TextResourc
     Returns:
         Resource content with proper MIME type (Markdown, JSON, or DOCX)
     """
-    import base64
-
     entry = await _get_cached_export(export_id)
+    if entry is not None and not entry.visible_to(get_task_scope()):
+        entry = None
     if not entry:
         raise ValueError(f"Export not found or expired: {export_id}")
 
     logger.info("📥 Serving export %s (%s)", export_id, entry.filename)
 
-    uri = f"research://exports/{export_id}"
-    mime_type = entry.mime_type
-
-    # For text formats, return TextResourceContents
-    if mime_type in ("text/markdown", "application/json"):
-        return TextResourceContents(
-            uri=uri,
-            mime_type=mime_type,
-            text=entry.content.decode("utf-8"),
-        )
-
-    # For binary formats (DOCX), return BlobResourceContents with base64
-    return BlobResourceContents(
-        uri=uri,
-        mime_type=mime_type,
-        blob=base64.b64encode(entry.content).decode("ascii"),
+    content = (
+        entry.content.decode("utf-8")
+        if entry.mime_type in ("text/markdown", "application/json")
+        else entry.content
     )
+    return ResourceResult([ResourceContent(content, mime_type=entry.mime_type)])
 
 
 @mcp.resource(
@@ -2425,7 +2526,10 @@ async def list_exports() -> str:
     Returns a JSON array of available exports with their metadata.
     Exports expire after 1 hour (backend-enforced TTL).
     """
-    artifacts: list[ExportArtifact] = await get_export_store().list_async()
+    scope = get_task_scope()
+    artifacts: list[ExportArtifact] = [
+        a for a in await get_export_store().list_async() if a.visible_to(scope)
+    ]
 
     exports = []
     for entry in artifacts:
@@ -2545,6 +2649,8 @@ def main() -> None:
         logger.info("   Transport: stdio")
         mcp.run(transport="stdio")
         return
+
+    set_http_transport(True)
 
     # GEMINI_API_KEY must never double as an MCP client credential - it is a
     # provider secret, not an access-control token for this server's clients.

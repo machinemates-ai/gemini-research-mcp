@@ -34,6 +34,7 @@ from gemini_research_mcp.config import LOGGER_NAME
 
 if TYPE_CHECKING:
     from gemini_research_mcp.storage import ResearchSession
+    from gemini_research_mcp.types import ResolvedResearchComparison, ResolvedResearchJob
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -1479,3 +1480,139 @@ def export_session(
 def get_supported_formats() -> list[str]:
     """Return list of supported export formats."""
     return [f.value for f in ExportFormat]
+
+
+# =============================================================================
+# Attributed research bundles (v0.17)
+# =============================================================================
+
+BUNDLE_SCHEMA_VERSION = 1
+BUNDLE_FORMATS = ("json", "markdown")
+_BUNDLE_LIMITATIONS = (
+    "Reports are kept per engine exactly as returned; nothing is merged, scored or synthesized.",
+    "Report text is untrusted data produced by a model or search backend.",
+)
+
+
+def _bundle_engine_entry(job: ResolvedResearchJob) -> dict[str, Any]:
+    data = job.to_dict(include_report=True)
+    limitations: list[str] = []
+    if data["recovery"] == "none":
+        limitations.append("Local runs cannot be recovered or resumed after interruption.")
+    if job.record.cancellation_requested:
+        limitations.append("Cancellation was requested; the provider outcome may differ.")
+    return {
+        "engine": data["engine"],
+        "backend": data["backend"],
+        "model": data["model"],
+        "run_id": data["run_id"],
+        "status": data["status"],
+        "provider_id": data["provider_id"],
+        "cancellation_requested": data["cancellation_requested"],
+        "recovery": data["recovery"],
+        "warnings": data["warnings"],
+        "error": data["error"],
+        "report_status": data.get("report_status"),
+        "report": data.get("report"),
+        "sources": data.get("sources", []),
+        "usage": data.get("usage"),
+        "limitations": limitations,
+    }
+
+
+def _bundle_payload(run: ResolvedResearchJob | ResolvedResearchComparison) -> dict[str, Any]:
+    from gemini_research_mcp.types import ResolvedResearchComparison
+
+    base: dict[str, Any] = {
+        "schema_version": BUNDLE_SCHEMA_VERSION,
+        "synthesis": "caller_owned",
+        "limitations": list(_BUNDLE_LIMITATIONS),
+    }
+    if isinstance(run, ResolvedResearchComparison):
+        return {
+            **base,
+            "run_id": run.comparison_id,
+            "kind": "comparison",
+            "status": run.status.value,
+            "query": run.record.query,
+            "engines": [_bundle_engine_entry(child) for child in run.children],
+        }
+    return {
+        **base,
+        "run_id": run.job_id,
+        "kind": "job",
+        "status": run.status.value,
+        "query": run.record.query,
+        "engines": [_bundle_engine_entry(run)],
+    }
+
+
+def _bundle_markdown(payload: dict[str, Any]) -> str:
+    lines = [
+        f"# Research bundle {payload['run_id']}",
+        "",
+        f"- **Kind:** {payload['kind']}",
+        f"- **Status:** {payload['status']}",
+        f"- **Query:** {' '.join(str(payload['query']).split())}",
+        "- **Synthesis:** caller-owned (none performed)",
+        "",
+    ]
+    lines += [f"> {note}" for note in payload["limitations"]]
+    for entry in payload["engines"]:
+        lines += [
+            "",
+            f"## Engine: {entry['engine']}",
+            "",
+            f"- **Backend:** {entry['backend']}",
+            f"- **Model:** {entry['model'] or 'unknown'}",
+            f"- **Status:** {entry['status']}",
+        ]
+        if entry["provider_id"]:
+            lines.append(f"- **Provider interaction:** {entry['provider_id']}")
+        if entry["cancellation_requested"]:
+            lines.append("- **Cancellation requested:** yes")
+        usage = entry["usage"]
+        if usage and usage.get("total_tokens") is not None:
+            lines.append(f"- **Total tokens:** {usage['total_tokens']}")
+        if entry["error"]:
+            lines.append(f"- **Error:** {entry['error']['code']}: {entry['error']['message']}")
+        lines += [f"- **Warning:** {w}" for w in entry["warnings"]]
+        lines += [f"- **Limitation:** {w}" for w in entry["limitations"]]
+        if entry["report"]:
+            lines += ["", "### Report (verbatim, untrusted)", "", entry["report"].rstrip(), ""]
+        if entry["sources"]:
+            lines += ["### Sources (as reported by this engine)", ""]
+            for source in entry["sources"]:
+                label = source.get("title") or source.get("uri") or "source"
+                target = f" <{source['uri']}>" if source.get("uri") else ""
+                lines.append(f"- {label}{target} [{source['provenance']}]")
+            lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def render_research_bundle(
+    run: ResolvedResearchJob | ResolvedResearchComparison,
+    *,
+    format: str,
+) -> ExportResult:
+    """Render an attributed per-engine bundle; no provider call, no cross-engine merge."""
+    normalized = format.strip().lower()
+    if normalized == "md":
+        normalized = "markdown"
+    if normalized not in BUNDLE_FORMATS:
+        raise ValueError(f"Unsupported bundle format: {format!r}. Use: json, markdown")
+    payload = _bundle_payload(run)
+    stem = f"research-bundle-{payload['run_id']}"
+    if normalized == "json":
+        return ExportResult(
+            format=ExportFormat.JSON,
+            filename=f"{stem}.json",
+            content=json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8"),
+            mime_type="application/json",
+        )
+    return ExportResult(
+        format=ExportFormat.MARKDOWN,
+        filename=f"{stem}.md",
+        content=_bundle_markdown(payload).encode("utf-8"),
+        mime_type="text/markdown",
+    )

@@ -81,12 +81,13 @@ flowchart TB
 
 ## Tools
 
-The server exposes a **BM25-compacted catalog**: only the 5 tools below plus
+The server exposes a **BM25-compacted catalog**: only the 7 tools below plus
 the synthetic `search_tools`/`call_tool` pair are listed by default
 (`fastmcp.server.transforms.search.BM25SearchTransform`). Utility tools
 (`fetch_webpage`, `research_followup`, `list_research_sessions`,
 `list_format_templates`, `refine_research_plan`,
-`inspect_mcp_server_for_gemini`) are hidden from the default
+`inspect_mcp_server_for_gemini`, `list_research_engines`,
+`list_research_runs`, `get_research_run`, `export_research_bundle`) are hidden from the default
 listing to keep the catalog small for LLM tool-selection, but remain fully
 callable directly by name or via the `call_tool` proxy, and are discoverable
 by relevance through `search_tools`.
@@ -96,6 +97,8 @@ by relevance through `search_tools`.
 | `research_web` | Web search with citations | varies | ✅ |
 | `research_deep` | Multi-step autonomous research (MCP Tasks) | 3-20 min | ✅ |
 | `research_deep_max` | Maximum-comprehensiveness Deep Research for exhaustive/high-stakes work | longer-running | ✅ |
+| `research_run` | Engine-neutral research job (MCP Tasks): Gemini by default, optional local engine | engine-dependent | ✅ |
+| `research_compare` | Run exactly two engines on one query and return attributed reports (no synthesis) | engine-dependent | ✅ |
 | `resume_research` | Resume interrupted/in-progress sessions | instant | ✅ |
 | `export_research_session` | Disk-first export to persistent Markdown, JSON, or DOCX artifacts | instant | ✅ |
 | `search_tools` | Discover hidden utility tools by relevance (BM25) | instant | ✅ |
@@ -106,6 +109,10 @@ by relevance through `search_tools`.
 | `refine_research_plan` | Iterate on or approve a `collaborative_planning=True` plan | instant-3min | discoverable |
 | `fetch_webpage` | Extract article content from a specific URL (SSRF-protected, chunkable) | 0.5-2 sec | discoverable |
 | `inspect_mcp_server_for_gemini` | Inspect remote MCP reachability and schemas (diagnostic only) | varies | discoverable |
+| `list_research_engines` | Engines, backends, models and availability (configuration only, no provider call) | instant | discoverable |
+| `list_research_runs` | Metadata of your research jobs and comparisons (`limit` 1-100) | instant | discoverable |
+| `get_research_run` | Read one run by `run_id`; `refresh=true` re-polls a native provider job | instant | discoverable |
+| `export_research_bundle` | Attributed JSON/Markdown bundle of a run, with no model or search call | instant | discoverable |
 
 ### `research_deep` / `research_deep_max` Deep Research parameters
 
@@ -182,6 +189,108 @@ Download the `.mcpb` bundle from [GitHub Releases](https://github.com/machinemat
 
 The bundle uses UV runtime - dependencies are installed automatically, no Python required.
 
+## Research jobs and engines
+
+`research_run` and `research_compare` are **engine-neutral** jobs. They require
+MCP Tasks, return a normalized result envelope
+(`{"result": <text>, "schema_version": 1, "run": {...}}`), and keep the legacy
+`research_deep`/`resume_research`/`export_research_session` tools working.
+
+| Engine | Backend | Notes |
+|--------|---------|-------|
+| `gemini` (default) | `gemini-native` | Gemini Deep Research; recoverable by provider interaction ID |
+| `gemini_max` | `gemini-native` | Gemini Deep Research Max |
+| `local_deep_research` | `local-deep-research` | Optional, operator-installed [Local Deep Research](https://github.com/LearningCircuit/local-deep-research) bridge; see below |
+
+`research_compare` takes **exactly two distinct** engines and runs both. It
+returns each engine's report, attributed and verbatim; it never merges or
+synthesizes them. **Synthesis is the caller's job.** One engine failing yields a
+`partial` result that keeps the other report. Comparing two Gemini profiles can
+incur two paid research workloads.
+
+### Identifiers
+
+Three IDs are never interchangeable:
+
+- **Task ID**: the MCP Task handle for one submission. A resubmitted Task is a new
+  submission and **may create a second paid job** (the same logical request is
+  not deduplicated across Tasks; there are no caller idempotency keys).
+- **Run ID** (`job_…`, `cmp_…`): stable, derived from the owner and Task. Use it
+  with `get_research_run`, `export_research_bundle` and `list_research_runs`.
+- **Provider ID**: the Gemini interaction ID. Only native jobs have one; local
+  jobs never expose a provider ID. Provider IDs are not accepted as run IDs.
+
+### Lifecycle and recovery
+
+- Job statuses: `queued`, `running`, `completed`, `failed`, `cancelled`,
+  `interrupted`, `expired`; a comparison can also be `partial`. `interrupted`
+  means the server cannot prove an outcome.
+- Retention uses the existing fixed TTL (`GEMINI_RESEARCH_TTL_SECONDS`) set at
+  creation; updates and refreshes never extend it. Expired runs read `expired`.
+  A submission is refused (`RETENTION_TOO_SHORT`) when the TTL cannot cover the
+  engine timeout plus a cleanup margin.
+- **Ambiguous submission**: if the process dies after the provider request may
+  have been sent but before its ID was stored, the run reads `interrupted` with
+  `SUBMISSION_UNKNOWN`. It is not resubmitted automatically; the provider job may
+  still exist and be billed.
+- **Native recovery**: a native run with a stored provider ID is recovered by
+  `get_research_run(refresh=true)` or the legacy `resume_research`. While this
+  process still executes the job, `resume_research` answers `busy`.
+- **Local non-recovery**: a local run is blocking and has no provider ID. After a
+  restart it is reported `interrupted`; it is never resumed or re-run.
+- **Single owner**: submission requires one owner process with in-memory Tasks
+  and local storage. With `GEMINI_RESEARCH_STORAGE_URL` (Redis) or a non-memory
+  `FASTMCP_DOCKET_URL`, submissions are refused with
+  `DISTRIBUTED_SUBMISSION_UNSUPPORTED` rather than risk duplicate paid jobs after
+  a redelivery or a new runner. Read tools still work.
+
+### Ownership and HTTP
+
+Runs, their linked sessions, images and bundles are owned by the authenticated
+principal. Another principal sees "not found". Over `streamable-http` the job
+tools require an authenticated principal (`AUTH_REQUIRED` otherwise); stdio has a
+single local owner. Historical sessions with no job link stay visible as before.
+The local engine is **not** offered over HTTP unless the operator sets
+`GEMINI_RESEARCH_LDR_ALLOW_HTTP=true`
+(`LOCAL_ENGINE_HTTP_DISABLED` otherwise).
+
+### Follow-ups on agent research
+
+The Gemini API does not let a model continue an interaction that belongs to a
+Deep Research agent. `research_followup` therefore answers from the report stored
+in the session, treated as untrusted context, in a stateless model call.
+
+### Optional local engine (Local Deep Research)
+
+The bridge targets an operator-installed `ldr-mcp` pinned to LDR commit
+`362d65652156732b08a704f0d3faa77996b4f0de` (stdio only). This server **installs
+and starts nothing**: set `GEMINI_RESEARCH_LDR_COMMAND` to its absolute path and
+configure the `LDR_*` values in [`.env.example`](.env.example) (Ollama on
+loopback plus an explicit search backend). The engine stays unavailable until
+all are set, and the Gemini-only default never spawns a child process.
+
+- **Local does not mean free or private by default**: the model runs on your
+  Ollama, but the configured search backend receives queries over the network,
+  and local compute costs time and hardware.
+- LDR keeps its own data and retention, separate from this server's TTL. The
+  child process is not sandboxed. LDR's configuration is verified before any
+  query is sent.
+- No boolean here is human authorization; the caller decides whether to run a
+  paid or networked workload.
+- LDR can return a report with **no sources** when its search backend throttles
+  or its relevance filter drops every result (observed with Wikipedia and a 4B
+  model). The bundle then lists no sources for that engine; the report is still
+  kept verbatim and untrusted.
+
+### Bundles
+
+`export_research_bundle(run_id, format="json"|"markdown")` renders a run (single
+or comparison) from stored data with **no model, search or provider call**. Each
+engine entry carries engine, backend, model, status, recovery state, warnings,
+error, sources, usage and its report, labelled verbatim and untrusted. Bundles
+are saved to the export directory and as an owner-scoped `research://exports/{id}`
+artifact.
+
 ## Configuration
 
 | Variable | Required | Default | Description |
@@ -196,6 +305,8 @@ The bundle uses UV runtime - dependencies are installed automatically, no Python
 | `GEMINI_RESEARCH_STORAGE_PATH` | No | XDG data dir | Custom directory for the local `DiskStore` |
 | `GEMINI_RESEARCH_TTL_SECONDS` | No | backend default | Override session/export TTL |
 | `GEMINI_RESEARCH_EXPORT_DIR` | No | `~/.gemini-research/exports/` | Disk-first destination when `export_research_session` has no `output_path` |
+| `GEMINI_RESEARCH_LDR_COMMAND` | No | — | Absolute path of an operator-installed `ldr-mcp`; enables the optional `local_deep_research` engine (see [Research jobs and engines](#research-jobs-and-engines)) |
+| `GEMINI_RESEARCH_LDR_ALLOW_HTTP` | No | `false` | Operator opt-in to offer the local engine over `streamable-http` |
 | `GEMINI_RESEARCH_TRANSPORT` | No | `stdio` | `stdio` (default, historical) or `streamable-http` (opt-in, see [Transports](#transports)) |
 | `GEMINI_RESEARCH_HTTP_HOST` | No | `127.0.0.1` | Bind host for `streamable-http`. Non-loopback requires `GEMINI_RESEARCH_HTTP_BEARER_TOKEN` |
 | `GEMINI_RESEARCH_HTTP_PORT` | No | `8000` | Bind port for `streamable-http` |
@@ -459,6 +570,8 @@ uv run pytest
 uv run mypy src/
 uv run ruff check src/
 ```
+
+Release numbering and gates are described in [`docs/versioning.md`](docs/versioning.md).
 
 ### Tests
 

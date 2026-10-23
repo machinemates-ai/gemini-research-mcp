@@ -660,6 +660,33 @@ class TestExportResult:
 class TestExportCache:
     """Tests for the persistent export artifact store used by MCP Resources."""
 
+    @pytest.mark.parametrize("format", ["markdown", "json", "docx"])
+    async def test_export_download_over_mcp(
+        self, sample_session: ResearchSession, format: str
+    ) -> None:
+        import base64
+
+        from fastmcp import Client
+        from mcp.types import BlobResourceContents, TextResourceContents
+
+        from gemini_research_mcp import server
+
+        exported = export_session(sample_session, format)
+        export_id = await server._cache_export(exported, sample_session.interaction_id)
+        async with Client(server.mcp) as client:
+            contents = await client.read_resource(f"research://exports/{export_id}")
+        assert len(contents) == 1
+        content = contents[0]
+        expected_type = BlobResourceContents if format == "docx" else TextResourceContents
+        assert isinstance(content, expected_type)
+        assert content.mime_type == exported.mime_type
+        actual = (
+            content.text.encode("utf-8")
+            if isinstance(content, TextResourceContents)
+            else base64.b64decode(content.blob)
+        )
+        assert actual == exported.content
+
     @pytest.fixture(autouse=True)
     def _isolated_export_store(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Point the global export store at a throwaway directory for this test.
@@ -711,45 +738,6 @@ class TestExportCache:
 
         entry = await _get_cached_export("nonexistent-id")
         assert entry is None
-
-    @pytest.mark.asyncio
-    async def test_export_resource_returns_mcp_types(
-        self, sample_session: ResearchSession
-    ) -> None:
-        """Test the resource function returns proper MCP content types."""
-        from mcp.types import TextResourceContents
-
-        from gemini_research_mcp.server import _cache_export, get_export_by_id
-
-        # Test markdown returns TextResourceContents
-        result = export_to_markdown(sample_session)
-        export_id = await _cache_export(result, sample_session.interaction_id)
-
-        content = await get_export_by_id(export_id)
-        assert isinstance(content, TextResourceContents)
-        assert content.mime_type == "text/markdown"
-        assert content.text == result.content.decode("utf-8")
-
-    @pytest.mark.asyncio
-    async def test_export_resource_docx_returns_blob(
-        self, sample_session: ResearchSession
-    ) -> None:
-        """Test DOCX export returns BlobResourceContents with base64."""
-        import base64
-
-        from mcp.types import BlobResourceContents
-
-        from gemini_research_mcp.server import _cache_export, get_export_by_id
-
-        result = export_to_docx(sample_session)
-        export_id = await _cache_export(result, sample_session.interaction_id)
-
-        content = await get_export_by_id(export_id)
-        assert isinstance(content, BlobResourceContents)
-        assert content.mime_type == DOCX_MIME_TYPE
-        # Verify base64 decodes to original content
-        decoded = base64.b64decode(content.blob)
-        assert decoded == result.content
 
     @pytest.mark.asyncio
     async def test_export_resource_raises_on_invalid_id(self) -> None:

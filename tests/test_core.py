@@ -117,6 +117,33 @@ async def test_shared_model_routing(
     assert config.tools[0].google_search is not None
 
 
+async def test_agent_interaction_followup_uses_stored_report(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The live API refuses model continuation of agent interactions."""
+    from gemini_research_mcp import deep
+
+    rejected = RuntimeError("Previous interaction x belongs to an agent and cannot be continued")
+    create = AsyncMock(side_effect=[rejected, types.SimpleNamespace(output_text="answer")])
+    client = types.SimpleNamespace(
+        aio=types.SimpleNamespace(interactions=types.SimpleNamespace(create=create))
+    )
+    monkeypatch.setattr(deep, "_get_healthy_client", lambda: client)
+    monkeypatch.setattr(deep, "_client_health", None)
+
+    answer = await deep.research_followup("agent-id", "why?", report_text="REPORT BODY")
+    assert answer == "answer"
+    stateless = create.await_args_list[1].kwargs
+    assert "previous_interaction_id" not in stateless
+    assert "REPORT BODY" in stateless["input"] and "untrusted" in stateless["input"]
+
+    create.reset_mock(side_effect=True)
+    create.side_effect = rejected
+    with pytest.raises(deep.DeepResearchError, match="FOLLOWUP_FAILED"):
+        await deep.research_followup("agent-id", "why?")
+    create.assert_awaited_once()
+
+
 class TestSystemPrompt:
     """Test default system prompt generation."""
 
