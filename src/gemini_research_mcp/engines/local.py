@@ -242,7 +242,9 @@ def _extract_payload(result: Any) -> object:
     """Structured content first, otherwise one unambiguous JSON object."""
     structured = getattr(result, "structured_content", None)
     if isinstance(structured, Mapping):
-        return structured
+        # The MCP SDK wraps dict returns as {"result": {...}}.
+        wrapped = structured.get("result") if set(structured) == {"result"} else None
+        return wrapped if isinstance(wrapped, Mapping) else structured
     texts = [
         block.text
         for block in getattr(result, "content", None) or []

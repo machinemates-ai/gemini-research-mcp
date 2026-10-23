@@ -136,6 +136,15 @@ def test_descriptor_needs_command_and_valid_config_without_launching(monkeypatch
 # --- normalization -----------------------------------------------------------------
 
 
+def test_sdk_wrapped_structured_payload_is_unwrapped():
+    """The real LDR server (MCP SDK) returns dicts as {"result": {...}}."""
+    payload = {"status": "success", "config": {}}
+    wrapped = type("Result", (), {"structured_content": {"result": payload}, "content": []})
+    plain = type("Result", (), {"structured_content": payload, "content": []})
+    assert local_module._extract_payload(wrapped) == payload
+    assert local_module._extract_payload(plain) == payload
+
+
 def test_ldr_error_payload_is_not_success():
     with pytest.raises(EngineError) as exc:
         normalize_ldr_result(

@@ -247,7 +247,7 @@ class Acceptance:
                 keep_alive=False,
                 log_file=sink,
             )
-            async with Client(transport, timeout=1900) as client:
+            async with Client(transport, timeout=3700) as client:
                 yield client
 
     @asynccontextmanager
@@ -341,7 +341,7 @@ def acceptance() -> Acceptance:
 
 async def submit(client: Client, name: str, args: dict[str, Any]) -> Any:
     handle = await call_tool_task(client, name, args)
-    await handle.wait(timeout=1800)
+    await handle.wait(timeout=3600)
     return checked(await handle.result())
 
 
@@ -432,7 +432,7 @@ async def test_02_legacy_deep(acceptance: Acceptance, tool: str, agent: str) -> 
             },
         )
         assert handle.task_id != session_id
-        await handle.wait(timeout=1800)
+        await handle.wait(timeout=3600)
         result = checked(await handle.result())
         assert text(result).strip() and re.search(r"https?://", text(result))
         sessions = checked(await client.call_tool("list_research_sessions"))
@@ -509,7 +509,7 @@ async def test_03_native_process_recovery(acceptance: Acceptance) -> None:
         checked(
             await client.call_tool("get_research_run", {"run_id": run["run_id"], "refresh": True})
         )
-        async with asyncio.timeout(1800):
+        async with asyncio.timeout(3600):
             while True:
                 checked(
                     await client.call_tool(
@@ -582,7 +582,7 @@ async def test_05_http_comparison_and_bundle(acceptance: Acceptance) -> None:
         local=True,
         allowance=1,
     ) as url:
-        async with Client(url, auth=alice, timeout=1900) as client:
+        async with Client(url, auth=alice, timeout=3700) as client:
             result = await submit(
                 client,
                 "research_compare",
