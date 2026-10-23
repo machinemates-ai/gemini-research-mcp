@@ -1782,10 +1782,12 @@ async def research_followup(
                     matchable[0].query[:50],
                 )
 
+        followup_session = get_research_session(previous_interaction_id)
         response = await _research_followup(
             previous_interaction_id=previous_interaction_id,
             query=query,
             model=model,
+            report_text=followup_session.report_text if followup_session else None,
         )
 
         lines = [
