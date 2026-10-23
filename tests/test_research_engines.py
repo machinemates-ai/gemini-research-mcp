@@ -302,6 +302,10 @@ def test_local_engine_is_available_with_absolute_command_without_launching(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("GEMINI_RESEARCH_LDR_COMMAND", "/opt/ldr/bin/ldr-mcp")
+    monkeypatch.setenv("LDR_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("LDR_LLM_MODEL", "llama3:8b")
+    monkeypatch.setenv("LDR_LLM_OLLAMA_URL", "http://127.0.0.1:11434")
+    monkeypatch.setenv("LDR_SEARCH_TOOL", "searxng")
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     descriptor = {d.id: d for d in describe_engines()}["local_deep_research"]
     assert descriptor.available is True
