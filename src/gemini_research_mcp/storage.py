@@ -22,7 +22,7 @@ import logging
 import os
 import threading
 import time
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -36,7 +36,21 @@ from key_value.aio.stores.base import BaseStore
 from key_value.aio.stores.disk import DiskStore
 
 from gemini_research_mcp.config import LOGGER_NAME, STORAGE_URL_ENV_VAR
-from gemini_research_mcp.types import DeepResearchAgent
+from gemini_research_mcp.types import (
+    BACKEND_GEMINI,
+    BACKEND_LOCAL,
+    DeepResearchAgent,
+    EngineError,
+    EngineReport,
+    EngineUsage,
+    GroupStatus,
+    JobStatus,
+    ResearchComparisonRecord,
+    ResearchJobRecord,
+    ResearchSource,
+    ResolvedResearchComparison,
+    ResolvedResearchJob,
+)
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -58,12 +72,19 @@ APP_NAME = "gemini-research-mcp"
 # Storage collection names (namespaces within the key-value backend)
 SESSIONS_COLLECTION = "sessions"
 EXPORTS_COLLECTION = "exports"
+JOBS_COLLECTION = "research_jobs"
+COMPARISONS_COLLECTION = "research_comparisons"
 
 # Versioned sidecar index used only by DiskStore, which has no public keys()
 # API. Redis and other enumerable backends use their public protocol directly.
 DISK_INDEX_FILENAME = ".gemini-research-key-index-v1.json"
 DISK_INDEX_VERSION = 1
-_INDEXED_COLLECTIONS = (SESSIONS_COLLECTION, EXPORTS_COLLECTION)
+_INDEXED_COLLECTIONS = (
+    SESSIONS_COLLECTION,
+    EXPORTS_COLLECTION,
+    JOBS_COLLECTION,
+    COMPARISONS_COLLECTION,
+)
 _DISK_INDEX_LOCKS: dict[Path, threading.Lock] = {}
 _DISK_INDEX_LOCKS_GUARD = threading.Lock()
 
@@ -313,6 +334,12 @@ class ResearchSession:
     status: ResearchStatus = ResearchStatus.COMPLETED  # For resume functionality
     plan_text: str | None = None  # Draft plan while PLANNING/AWAITING_APPROVAL
     image_export_ids: list[str] = field(default_factory=list)  # Persisted image artifacts
+    # Optional v0.17 link metadata; omitted from serialized form when empty so
+    # legacy records and exports keep their exact shape.
+    job_id: str | None = None
+    owner_scope: str | None = None
+    sources: list[dict[str, Any]] = field(default_factory=list)
+    usage: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         """Set expiration if not provided."""
@@ -371,6 +398,9 @@ class ResearchSession:
         result["status"] = self.status.value
         if self.agent_name is not None:
             result["agent_name"] = self.agent_name.value
+        for optional in ("job_id", "owner_scope", "sources", "usage"):
+            if not result.get(optional):
+                result.pop(optional, None)
         return result
 
     @classmethod
@@ -411,6 +441,10 @@ class ResearchSession:
             status=ResearchStatus(data.get("status", "completed")),
             plan_text=data.get("plan_text"),
             image_export_ids=data.get("image_export_ids", []),
+            job_id=data.get("job_id"),
+            owner_scope=data.get("owner_scope"),
+            sources=data.get("sources", []),
+            usage=data.get("usage"),
         )
 
     @property
@@ -1048,3 +1082,392 @@ def get_export_store() -> ExportArtifactStore:
     if _export_store is None:
         _export_store = ExportArtifactStore()
     return _export_store
+
+
+# =============================================================================
+# Research jobs and comparisons (v0.17)
+# =============================================================================
+
+IsOwned = Callable[[str], bool]
+
+
+def _never_owned(_job_id: str) -> bool:
+    return False
+
+
+_IN_PROGRESS_SESSION = frozenset(
+    {ResearchStatus.IN_PROGRESS, ResearchStatus.PLANNING, ResearchStatus.EXECUTING}
+)
+_SESSION_TERMINAL = {
+    ResearchStatus.COMPLETED: JobStatus.COMPLETED,
+    ResearchStatus.FAILED: JobStatus.FAILED,
+    ResearchStatus.CANCELLED: JobStatus.CANCELLED,
+    ResearchStatus.INTERRUPTED: JobStatus.INTERRUPTED,
+}
+_JOB_IMMUTABLE_FIELDS = (
+    "engine_id",
+    "backend",
+    "query",
+    "request_fingerprint",
+    "task_id",
+    "owner_scope",
+    "slot",
+    "created_at",
+    "expires_at",
+    "comparison_id",
+)
+
+
+def derive_group_status(first: JobStatus, second: JobStatus) -> GroupStatus:
+    """Derive a comparison status from its two children. Partial is not consensus."""
+    pair = (first, second)
+    if JobStatus.EXPIRED in pair:
+        return GroupStatus.EXPIRED
+    if all(s is JobStatus.COMPLETED for s in pair):
+        return GroupStatus.COMPLETED
+    if all(s is JobStatus.QUEUED for s in pair):
+        return GroupStatus.QUEUED
+    if any(not s.is_terminal for s in pair):
+        return GroupStatus.RUNNING
+    if any(s is JobStatus.COMPLETED for s in pair):
+        return GroupStatus.PARTIAL
+    if all(s in (JobStatus.FAILED, JobStatus.CANCELLED) for s in pair):
+        return GroupStatus.FAILED
+    return GroupStatus.INTERRUPTED
+
+
+class ResearchJobStorage:
+    """Jobs and immutable comparisons over the session store's backend and index."""
+
+    def __init__(self, sessions: SessionStorage):
+        self._sessions = sessions
+        self._store = sessions._store
+        self._disk_index = sessions._disk_index
+
+    # -- low level ---------------------------------------------------------------
+
+    async def _put(
+        self, collection: str, key: str, data: dict[str, Any], expires_at: float
+    ) -> None:
+        ttl = max(1.0, expires_at - time.time())
+        await self._store.put(key, data, ttl=ttl, collection=collection)
+        if self._disk_index is not None:
+            await self._disk_index.add(collection, key)
+
+    async def _drop(self, collection: str, key: str) -> None:
+        await self._store.delete(key, collection=collection)
+        if self._disk_index is not None:
+            await self._disk_index.discard_many(collection, [key])
+
+    async def _keys(self, collection: str) -> list[str]:
+        return await _enumerate_collection_keys(
+            self._store, collection=collection, disk_index=self._disk_index
+        )
+
+    async def _load_job(self, job_id: str) -> ResearchJobRecord | None:
+        data = await self._store.get(job_id, collection=JOBS_COLLECTION)
+        if data is None:
+            return None
+        try:
+            job = ResearchJobRecord.from_dict(data)
+        except (KeyError, TypeError, ValueError) as exc:
+            logger.warning("Skipping corrupted research job %s: %s", job_id[:20], exc)
+            return None
+        if job.expires_at <= time.time():
+            await self._drop(JOBS_COLLECTION, job_id)
+            return None
+        return job
+
+    async def _load_comparison(self, comparison_id: str) -> ResearchComparisonRecord | None:
+        data = await self._store.get(comparison_id, collection=COMPARISONS_COLLECTION)
+        if data is None:
+            return None
+        try:
+            group = ResearchComparisonRecord.from_dict(data)
+        except (KeyError, TypeError, ValueError, IndexError) as exc:
+            logger.warning("Skipping corrupted comparison %s: %s", comparison_id[:20], exc)
+            return None
+        if group.expires_at <= time.time():
+            await self._drop(COMPARISONS_COLLECTION, comparison_id)
+            return None
+        return group
+
+    # -- jobs --------------------------------------------------------------------
+
+    async def save_job(self, job: ResearchJobRecord) -> None:
+        """Create or update a job. Identity, scope and expiry are immutable."""
+        existing = await self._load_job(job.job_id)
+        if existing is not None:
+            changed = [f for f in _JOB_IMMUTABLE_FIELDS if getattr(existing, f) != getattr(job, f)]
+            if existing.provider_id is not None and job.provider_id != existing.provider_id:
+                changed.append("provider_id")
+            if changed:
+                raise EngineError(
+                    "JOB_CONFLICT",
+                    f"Research job {job.job_id} cannot change: {', '.join(changed)}.",
+                )
+        await self._put(JOBS_COLLECTION, job.job_id, job.to_dict(), job.expires_at)
+
+    async def get_job(self, job_id: str, *, owner_scope: str | None) -> ResearchJobRecord | None:
+        """Return a job only to its owning scope; other scopes see 'not found'."""
+        job = await self._load_job(job_id)
+        if job is None or job.owner_scope != owner_scope:
+            return None
+        return job
+
+    async def list_jobs(
+        self,
+        limit: int = 20,
+        *,
+        owner_scope: str | None,
+        include_children: bool = False,
+    ) -> list[ResearchJobRecord]:
+        jobs: list[ResearchJobRecord] = []
+        stale: list[str] = []
+        for key in await self._keys(JOBS_COLLECTION):
+            job = await self._load_job(key)
+            if job is None:
+                stale.append(key)
+                continue
+            if job.owner_scope != owner_scope:
+                continue
+            if job.comparison_id is not None and not include_children:
+                continue
+            jobs.append(job)
+        if self._disk_index is not None and stale:
+            await self._disk_index.discard_many(JOBS_COLLECTION, stale)
+        jobs.sort(key=lambda j: j.created_at, reverse=True)
+        return jobs[: max(1, limit)]
+
+    # -- comparisons -------------------------------------------------------------
+
+    async def save_comparison(self, group: ResearchComparisonRecord) -> None:
+        """Create a comparison. Re-saving an identical record is a no-op."""
+        existing = await self._load_comparison(group.comparison_id)
+        if existing is not None:
+            if existing == group:
+                return
+            raise EngineError(
+                "COMPARISON_CONFLICT",
+                f"Comparison {group.comparison_id} is immutable.",
+            )
+        await self._put(
+            COMPARISONS_COLLECTION, group.comparison_id, group.to_dict(), group.expires_at
+        )
+
+    async def get_comparison(
+        self, comparison_id: str, *, owner_scope: str | None
+    ) -> ResearchComparisonRecord | None:
+        group = await self._load_comparison(comparison_id)
+        if group is None or group.owner_scope != owner_scope:
+            return None
+        return group
+
+    async def list_comparisons(
+        self, limit: int = 20, *, owner_scope: str | None
+    ) -> list[ResearchComparisonRecord]:
+        groups: list[ResearchComparisonRecord] = []
+        stale: list[str] = []
+        for key in await self._keys(COMPARISONS_COLLECTION):
+            group = await self._load_comparison(key)
+            if group is None:
+                stale.append(key)
+            elif group.owner_scope == owner_scope:
+                groups.append(group)
+        if self._disk_index is not None and stale:
+            await self._disk_index.discard_many(COMPARISONS_COLLECTION, stale)
+        groups.sort(key=lambda g: g.created_at, reverse=True)
+        return groups[: max(1, limit)]
+
+    # -- resolution --------------------------------------------------------------
+
+    async def resolve_job(
+        self, job: ResearchJobRecord, *, is_owned: IsOwned = _never_owned
+    ) -> ResolvedResearchJob:
+        """Resolve authoritative status/report on read; never trusts duplicated state."""
+        if job.expires_at <= time.time():
+            return ResolvedResearchJob(job, JobStatus.EXPIRED, provider_id=job.provider_id)
+        if job.backend != BACKEND_LOCAL and job.provider_id is not None:
+            return await self._resolve_native(job, is_owned)
+        return self._resolve_recorded(job, is_owned)
+
+    def _resolve_recorded(self, job: ResearchJobRecord, is_owned: IsOwned) -> ResolvedResearchJob:
+        status = job.recorded_status
+        provider_id = job.provider_id if job.backend != BACKEND_LOCAL else None
+        if status.is_terminal:
+            return ResolvedResearchJob(
+                job,
+                status,
+                report=job.report,
+                provider_id=provider_id,
+                error_code=job.error_code,
+                error_message=job.error_message,
+            )
+        if is_owned(job.job_id):
+            return ResolvedResearchJob(job, status, provider_id=provider_id)
+        started = job.attempt_started_at is not None
+        return ResolvedResearchJob(
+            job,
+            JobStatus.INTERRUPTED,
+            provider_id=provider_id,
+            error_code="SUBMISSION_UNKNOWN" if started else "NOT_SUBMITTED",
+            error_message=(
+                "The submission outcome is unknown; the provider job may still exist."
+                if started
+                else "The job was never submitted."
+            ),
+        )
+
+    async def _resolve_native(
+        self, job: ResearchJobRecord, is_owned: IsOwned
+    ) -> ResolvedResearchJob:
+        provider_id = job.provider_id
+        assert provider_id is not None
+        session = await self._sessions.get_session_async(provider_id)
+        if session is None:
+            return ResolvedResearchJob(
+                job,
+                JobStatus.EXPIRED,
+                provider_id=provider_id,
+                error_code="SESSION_MISSING",
+                error_message="The linked research session is no longer stored.",
+            )
+        if session.job_id != job.job_id or session.owner_scope != job.owner_scope:
+            return ResolvedResearchJob(
+                job,
+                JobStatus.FAILED,
+                provider_id=provider_id,
+                error_code="LINK_MISMATCH",
+                error_message="The linked research session does not belong to this job.",
+            )
+
+        terminal = _SESSION_TERMINAL.get(session.status)
+        if terminal is not None:
+            return ResolvedResearchJob(
+                job,
+                terminal,
+                report=self._report_from_session(session, job, terminal),
+                provider_id=provider_id,
+                error_code=job.error_code if terminal is JobStatus.FAILED else None,
+                error_message=job.error_message if terminal is JobStatus.FAILED else None,
+            )
+        if session.status in _IN_PROGRESS_SESSION:
+            if is_owned(job.job_id):
+                return ResolvedResearchJob(job, JobStatus.RUNNING, provider_id=provider_id)
+            status = (
+                JobStatus.FAILED
+                if job.recorded_status is JobStatus.FAILED
+                else JobStatus.INTERRUPTED
+            )
+            return ResolvedResearchJob(
+                job,
+                status,
+                provider_id=provider_id,
+                error_code=job.error_code,
+                error_message=job.error_message,
+            )
+        return ResolvedResearchJob(
+            job,
+            JobStatus.INTERRUPTED,
+            provider_id=provider_id,
+            warnings=(
+                "The provider is waiting for a plan action; continue it with "
+                "resume_research or start a new run.",
+            ),
+        )
+
+    @staticmethod
+    def _report_from_session(
+        session: ResearchSession, job: ResearchJobRecord, status: JobStatus
+    ) -> EngineReport | None:
+        text = session.report_text or ""
+        if status is not JobStatus.COMPLETED and not text.strip():
+            return None
+        return EngineReport(
+            text=text,
+            status="completed" if status is JobStatus.COMPLETED else "incomplete",
+            sources=tuple(ResearchSource.from_dict(s) for s in session.sources),
+            usage=EngineUsage.from_dict(session.usage) if session.usage else None,
+            model=session.agent_name.value if session.agent_name else job.model,
+            provider_id=session.interaction_id,
+            duration_seconds=session.duration_seconds,
+        )
+
+    async def resolve_comparison(
+        self, group: ResearchComparisonRecord, *, is_owned: IsOwned = _never_owned
+    ) -> ResolvedResearchComparison:
+        children: list[ResolvedResearchJob] = []
+        for index, job_id in enumerate(group.child_job_ids):
+            job = await self._load_job(job_id)
+            if (
+                job is None
+                or job.owner_scope != group.owner_scope
+                or job.comparison_id != group.comparison_id
+            ):
+                children.append(self._missing_child(group, index))
+            else:
+                children.append(await self.resolve_job(job, is_owned=is_owned))
+        first, second = children
+        return ResolvedResearchComparison(
+            record=group,
+            status=derive_group_status(first.status, second.status),
+            children=(first, second),
+        )
+
+    @staticmethod
+    def _missing_child(group: ResearchComparisonRecord, index: int) -> ResolvedResearchJob:
+        engine_id = group.engine_ids[index]
+        stub = ResearchJobRecord(
+            job_id=group.child_job_ids[index],
+            engine_id=engine_id,
+            backend=BACKEND_LOCAL if engine_id == "local_deep_research" else BACKEND_GEMINI,
+            model=None,
+            query=group.query,
+            request_fingerprint=group.request_fingerprint,
+            task_id=group.task_id,
+            owner_scope=group.owner_scope,
+            slot=f"child:{index}",
+            created_at=group.created_at,
+            expires_at=group.expires_at,
+            comparison_id=group.comparison_id,
+        )
+        return ResolvedResearchJob(
+            stub,
+            JobStatus.EXPIRED,
+            error_code="JOB_MISSING",
+            error_message="The child job record is no longer stored.",
+        )
+
+    # -- retention ---------------------------------------------------------------
+
+    async def cleanup_expired_async(self) -> int:
+        """Remove expired jobs and comparisons. Returns the number removed."""
+        removed = 0
+        for collection, loader in (
+            (JOBS_COLLECTION, self._load_job),
+            (COMPARISONS_COLLECTION, self._load_comparison),
+        ):
+            stale: list[str] = []
+            for key in await self._keys(collection):
+                if await self._store.get(key, collection=collection) is None:
+                    stale.append(key)
+                    continue
+                if await loader(key) is None:
+                    removed += 1
+            if self._disk_index is not None and stale:
+                await self._disk_index.discard_many(collection, stale)
+        return removed
+
+
+_job_storage: ResearchJobStorage | None = None
+_job_storage_base: SessionStorage | None = None
+
+
+def get_job_storage() -> ResearchJobStorage:
+    """Get job storage bound to the current global session storage."""
+    global _job_storage, _job_storage_base
+    base = get_storage()
+    if _job_storage is None or _job_storage_base is not base:
+        _job_storage = ResearchJobStorage(base)
+        _job_storage_base = base
+    return _job_storage
