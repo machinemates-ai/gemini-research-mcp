@@ -454,6 +454,7 @@ class EngineSnapshot:
     status: JobStatus
     report: EngineReport | None = None
     warnings: tuple[str, ...] = ()
+    error_code: str | None = None
     error_message: str | None = None
 
 
